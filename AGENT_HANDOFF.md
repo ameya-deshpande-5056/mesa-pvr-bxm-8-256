@@ -35,7 +35,7 @@
 * **Mesa Source Directory:** [`research/mesa-src`](research/mesa-src) (tracked as official Git submodule pointing to [`https://gitlab.freedesktop.org/ameya-deshpande-5056/mesa.git`](https://gitlab.freedesktop.org/ameya-deshpande-5056/mesa.git)).
 * **Active Mesa Branch:** `bxm-ddk25-offline` (clean working tree, up to date with `myfork/bxm-ddk25-offline`).
 * **HEAD Mesa Commit:** `f1a4d5929bcf` — *"imagination: Align compute workgroup and push constant limits with B-Series profile"*
-* **Root Repository Commit:** `1a9986e` on `main` (tag `v0.1.0-alpha`).
+* **Root Repository Commit:** `81163ea` on `main`.
   * Commit 1 ([`b60cf5fb70df`](research/mesa-src)): Added BVNC `35.3.408.101` profile (`bxm-8-256.h`).
   * Commit 2 ([`db29f27f10e8`](research/mesa-src)): Added DDK 25.1 bridge header (`pvr_srv_bridge_v25.h`), dual-stack dispatch, and B-Series 16-heap discovery.
   * Commit 3 ([`29856e95783c`](research/mesa-src)): Fixed PMR unref to Func 7 (`PMRUNREFPMR`), implemented DDK 25.1 PMR alloc for Func 8 (`PHYSMEMNEWRAMBACKEDPMR`), and updated verified hardware constants.
@@ -80,8 +80,16 @@ python3 /home/ameya/bxm-research/tools/package_driver.py
 ## 6. Milestone Roadmap & Next Tasks
 
 * **Milestones 1–10, 12 [COMPLETED & VERIFIED]:**
-  * Forensic crash audit, DDK 25.1 bridge header, B-Series heap topology, PMR alloc/unref defect resolution, strengthened host regression harness, Android NDK r28 cross-compilation, Dual HAL+ICD export model, Adrenotools & Standalone ICD zip packaging, and PCO compute workgroup & push constant alignment.
-* **Milestone 11 [NEXT / PLANNED]:**
-  * **DRM-Shim / Mock Device Pipeline Verification:** Intercept `/dev/dri/renderD128` via `powervr_noop_drm_shim` or pvrsrvkm mock harness on Linux host to test command stream building (`pvr_cmd_buffer.c`) and pipeline compilation offline.
-* **Milestones 13+ [FUTURE / STRICTLY BLOCKED]:**
-  * Physical hardware validation remains suspended until offline DRM-shim and pipeline tests are completed.
+  * Forensic crash audit, DDK 25.1 bridge header, B-Series heap topology, PMR alloc/unref defect resolution, strengthened host regression harness, Android NDK r28 cross-compilation, Dual HAL+ICD export model, Adrenotools & Standalone ICD zip packaging, and PCO compute workgroup (512 inv) & push constant (256B) alignment.
+* **Milestone 11 [NEXT / IMMEDIATE]:**
+  * **DRM-Shim / Mock Device Pipeline Verification:** Intercept `/dev/dri/renderD128` via `powervr_noop_drm_shim` or pvrsrvkm mock harness on Linux host to test command stream building (`pvr_cmd_buffer.c`) and pipeline compilation offline without touching hardware.
+* **Driver Feature Expansion Roadmap [PLANNED / THINGS TO DO]:**
+  * **M17 (Native ASTC Textures):** Populate `pvr_formats.c` format table for `VK_FORMAT_ASTC_*`. Hardware TPU supports ASTC; enables Switch (Eden) & 3DS (Azahar) textures.
+  * **M18 (Depth Clamping):** Hook depth-clamp state bit into ISP command packets in `pvr_arch_cmd_buffer.c`.
+  * **M19 (Descriptor Indexing / Bindless):** Implement NIR indirect descriptor load lowering to global memory (Turnip style) to support modern Winlator/DXVK games.
+  * **M20 (Int64 / Int8 Math):** Hook `nir_lower_int64` and `nir_lower_bit_size` in PCO backend compiler.
+  * **M21 (Multi-Viewport):** Expand `PVR_MAX_VIEWPORTS` and route PPP viewport state.
+  * **M22 (Geometry & Tessellation):** Implement intermediate Parameter Buffer (PB) streaming passes in PCO (emulating GS/Tess on TBDR).
+  * **M23 (BC Texture Decompression):** Hardware lacks BC units (`0.0`); implement compute shader decompression for desktop textures in Winlator.
+* **Milestones 13–16 [STRICTLY SUSPENDED]:**
+  * Physical device testing remains gated and frozen until offline DRM-shim and pipeline tests are fully validated.

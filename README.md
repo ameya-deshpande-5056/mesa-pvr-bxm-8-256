@@ -114,6 +114,26 @@ gcc -Wall -Wextra -Werror -O2 tests/test_bridge_v25_mock.c -o tests/test_bridge_
 
 ---
 
+## Feature Support & Roadmap (Things to Do)
+
+This release (`v0.1.0-alpha`) focuses on DDK 25.1 kernel ABI alignment, dual-loader export models, and zero non-Bionic runtime dependencies. It advertises **Vulkan 1.2** with key capabilities and roadmap items:
+
+| Capability | Status | Implementation Notes |
+| :--- | :---: | :--- |
+| **Compute Shaders** | ✅ Supported | Up to 512 invocations per workgroup (`ERN35421` profile enabled) |
+| **Push Constants** | ✅ Supported | 256 bytes supported (`PVR_MAX_PUSH_CONSTANTS_SIZE`) |
+| **32-Bit Draw Indexing** | ✅ Supported | Full 32-bit index buffers enabled (`fullDrawIndexUint32`) |
+| **Timeline Semaphores** | ✅ Supported | Native timeline semaphore sync (`VK_KHR_timeline_semaphore`) |
+| **ASTC Textures** | ⏳ **Planned (M17)** | Supported by hardware TPU; pending format table mapping in `pvr_formats.c` |
+| **Depth Clamping** | ⏳ **Planned (M18)** | Pending ISP command packet state wiring in `pvr_arch_cmd_buffer.c` |
+| **Descriptor Indexing** | ⏳ **Planned (M19)** | Pending NIR indirect descriptor load lowering for bindless resources |
+| **64-bit Integer (`Int64`)** | ⏳ **Planned (M20)** | Pending register-pair ALU lowering (`nir_lower_int64`) in PCO compiler |
+| **Geometry & Tessellation** | ⏳ **Planned (M22)** | Requires multi-pass Parameter Buffer streaming emulation on TBDR |
+| **BC (DXTC) Textures** | ❌ **No HW Silicon** | Hardware lacks BC units; requires compute shader decompression for Winlator |
+| **64-bit Float (`FP64`)** | ❌ **No HW Silicon** | Hardware ALUs are strictly 32-bit/16-bit; no double-precision units |
+
+---
+
 ## Repository Map
 
 * **`patches/`**: 5 clean, upstream-compatible Git patches modifying Mesa:

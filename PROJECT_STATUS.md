@@ -151,7 +151,30 @@ Legend: [X] Completed & Verified  |  [~] In Progress  |  [ ] Planned / Pending
 - [ ] **M11: DRM-Shim / Mock Device Pipeline Verification**
   * *Objective:* Configure Mesa's DRM-shim or a host winsys wrapper to mock `/dev/dri/renderD128` on the Linux host so that command-stream generation (`pvr_cmd_buffer.c`) and SPIR-V pipeline compilation can be exercised offline without hardware access.
 
-### Phase 4: Gated, Reversible Physical Device Validation (Strictly Suspended)
+### Phase 4: Driver Capability Expansion & Vulkan Feature Roadmap (Things To Do)
+- [ ] **M17: Native ASTC Texture Compression (`textureCompressionASTC_LDR`)**
+  * *Context:* BXM-8-256 TPU (Texture Processing Unit) has native hardware ASTC decompression (`1.0` in vendor driver). Currently disabled in Mesa because [`pvr_formats.c`](research/mesa-src/src/imagination/vulkan/pvr_formats.c) only defines ETC2 formats.
+  * *Task:* Populate `pvr_formats.c` format capability tables for `VK_FORMAT_ASTC_*_KHR` with hardware format bitfields and block dimensions. Crucial for Nintendo Switch (Eden/Yuzu) and 3DS (Azahar/Citra) emulators.
+- [ ] **M18: Image Synthesis Processor (ISP) Depth Clamping (`depthClamp`)**
+  * *Context:* Currently disabled (`depthClamp = false`). PowerVR's Tile Accelerator (TA) clips primitives outside the near/far frustum by default.
+  * *Task:* Hook depth-clamp state into ISP command packets in [`pvr_arch_cmd_buffer.c`](research/mesa-src/src/imagination/vulkan/pvr_arch_cmd_buffer.c) to clamp fragment depth instead of clipping primitives.
+- [ ] **M19: Descriptor Indexing & Bindless Resource Lowering (`descriptorIndexing`)**
+  * *Context:* Currently disabled (`descriptorIndexing = false`, `runtimeDescriptorArray = false`). PowerVR uses Parameter Data Streamer (PDS) programs that statically bind descriptors ahead of time, which fails on dynamic/runtime array indices (`textures[dynamic_id]`).
+  * *Task:* Implement a NIR lowering pass that converts dynamic descriptor indexing into direct 64-bit GPU memory loads (mirroring Turnip's `tu_descriptor_set.c` approach) or generate dynamic looping PDS programs. Required for modern PC titles (Winlator / DXVK) and advanced Switch games.
+- [ ] **M20: 64-bit Integer & 8-bit Storage Lowering (`shaderInt64`, `storageBuffer8BitAccess`)**
+  * *Context:* PowerVR ALUs are 32-bit/16-bit. Vendor driver emulates Int64 via register pairs (low/high) and carry/borrow ALU flags.
+  * *Task:* Hook `nir_lower_int64` and `nir_lower_bit_size` in the PCO compiler backend to enable 64-bit integer arithmetic and 8-bit storage buffer packing/unpacking.
+- [ ] **M21: Multi-Viewport State Routing (`multiViewport`)**
+  * *Context:* Hardware Primitive Processing Pipe (PPP) supports multiple viewports, but Mesa currently hardcodes `PVR_MAX_VIEWPORTS = 1`.
+  * *Task:* Expand viewport tracking structures in `pvr_cmd_buffer.c` and populate PPP multi-viewport state registers.
+- [ ] **M22: Geometry & Tessellation Pipeline Emulation (Long-Term)**
+  * *Context:* PowerVR TBDR architecture lacks fixed-function geometry/tessellation hardware units. The vendor driver emulates GS and Tessellation by compiling them into multi-pass compute-like vertex streaming passes via intermediate Parameter Buffers (PB).
+  * *Task:* Design intermediate PB stream generation in PCO to support `VK_SHADER_STAGE_GEOMETRY_BIT` and `VK_SHADER_STAGE_TESSELLATION_*`.
+- [ ] **M23: BC (DXTC) Texture Decompression Compute Shaders (Winlator Compatibility)**
+  * *Context:* BXM-8-256 mobile silicon has **no hardware BC decompression unit** (`textureCompressionBC = 0.0` on vendor driver). Desktop games using BC1–BC7 will fail unless transcoded.
+  * *Task:* Implement compute-shader format decompression or hook into DXVK's format emulation layer to transcode BC textures to uncompressed/ASTC formats.
+
+### Phase 5: Gated, Reversible Physical Device Validation (Strictly Suspended)
 - [ ] **M13: Pre-Flight Safety Verification Gate** (Battery > 50%, USB direct, logcat background monitor).
 - [ ] **M14: Non-Invasive App-Private Deployment** (Deploy exclusively in `/data/local/tmp/mesa-test/` or via in-app Adrenotools; zero system/vendor partition modifications).
 - [ ] **M15: Isolated Device & Context Enumeration** (Verify Bridge 1 connect and Bridge 6 memory context creation without command submission).
@@ -218,6 +241,20 @@ Config 0: 16 Heaps Total
 * **Root Finding:** The string `"s:27098\0"` (Transport Layer stream name for PID 27098) was read as a pointer in register `x9` during list unlinking (`ldp x8, x9, [x0]; str x8, [x9]`).
 * **Causal Link:** `PVRSRVConnectKM` checks bit 5 (`ui32Flags & 0x20`). When missing, the kernel forces 32-bit compatibility mode (`strb w11, [x22, #32] = 2`). Furthermore, bit 7 (`0x80`) triggers `TLDeactivateDeferredFree` in `ConnectionDataDestroy`. The probe tool mistakenly passed `0x80` instead of `0x20`, corrupting stream cleanup.
 
+### 5.4 Hardware vs. Software Vulkan Feature Capabilities & Limitations
+
+| Feature | Physical BXM Silicon Support? | Stock Vendor Driver (`vulkan.mtk.so`) | Mesa `vulkan_pvr` | Implementation Status & Path Forward |
+| :--- | :---: | :---: | :---: | :--- |
+| **Geometry Shaders** | ❌ Emulated in SW | ✅ (via compute/PDS) | ❌ (`false`) | Driver only compiles VS & FS; requires intermediate Parameter Buffer (PB) streaming |
+| **Tessellation Shaders**| ❌ Emulated in SW | ✅ (via compute/PDS) | ❌ (`false`) | No tessellation control/evaluation pipeline in PCO compiler |
+| **Descriptor Indexing** | ✅ (Indirect lookups) | ✅ | ❌ (`false`) | PDS statically bakes descriptors; requires NIR indirect load lowering to global memory |
+| **ASTC Textures** | ✅ Native HW TPU | ✅ | ❌ (`false`) | Hardware TPU supports ASTC; `pvr_formats.c` needs format table bitfield mapping |
+| **BC (DXTC) Textures** | ❌ **No HW Silicon** | ❌ (`0.0`) | ❌ (`false`) | Hardware lacks BC decompression units; requires compute shader decompression |
+| **64-bit Float (`FP64`)**| ❌ **No HW Silicon** | ❌ (`0.0`) | ❌ (`false`) | USC ALUs are strictly 32-bit/16-bit; no double-precision hardware units |
+| **64-bit Integer** | ⚠️ Register Pairing | ✅ | ❌ (`false`) | Requires 64-bit register-pair ALU lowering (`nir_lower_int64`) in PCO backend |
+| **Depth Clamping** | ✅ Native in ISP | ✅ | ❌ (`false`) | Requires hooking depth-clamp bit in Image Synthesis Processor (ISP) command packets |
+| **Multi-Viewport** | ✅ Native in PPP | ✅ | ❌ (`false`) | Hardcoded to single viewport (`PVR_MAX_VIEWPORTS = 1`) |
+
 ---
 
 ## 6. Standard Build & Packaging Procedures (Host Only)
@@ -261,5 +298,10 @@ aarch64-linux-gnu-readelf -d \
 
 1. **Offline DRM-Shim Pipeline Verification (Milestone 11):**
    * *Action:* Configure Mesa's `powervr_noop_drm_shim` or implement a host winsys wrapper that mocks `/dev/dri/renderD128`, enabling offline testing of SPIR-V pipeline compilation, PDS program generation, and CDM command building before touching hardware.
-2. **Physical Device Testing Freeze:**
+2. **Prioritized Feature Implementations (Milestones 17–20):**
+   * *M17 (Native ASTC):* Populate `VK_FORMAT_ASTC_*` entries in `pvr_formats.c` to unlock standard textures in Nintendo Switch (Eden/Yuzu) and 3DS (Azahar/Citra) emulation.
+   * *M18 (Depth Clamping):* Hook depth-clamp state into ISP command packets in `pvr_arch_cmd_buffer.c`.
+   * *M19 (Descriptor Indexing):* Port Turnip-like indirect descriptor buffer lowering to NIR to unlock modern Winlator/DXVK games.
+   * *M20 (Int64 / Int8):* Enable `nir_lower_int64` and `nir_lower_bit_size` in the PCO backend compiler.
+3. **Physical Device Testing Freeze:**
    * **STRICT SAFETY CONSTRAINT:** Do NOT attempt physical testing on the device until offline DRM-shim and pipeline compilation are fully validated and user authorization is provided.

@@ -91,5 +91,10 @@ python3 /home/ameya/bxm-research/tools/package_driver.py
   * **M21 (Multi-Viewport):** Expand `PVR_MAX_VIEWPORTS` and route PPP viewport state.
   * **M22 (Geometry & Tessellation):** Implement intermediate Parameter Buffer (PB) streaming passes in PCO (emulating GS/Tess on TBDR).
   * **M23 (BC Texture Decompression):** Hardware lacks BC units (`0.0`); implement compute shader decompression for desktop textures in Winlator.
-* **Milestones 13–16 [STRICTLY SUSPENDED]:**
-  * Physical device testing remains gated and frozen until offline DRM-shim and pipeline tests are fully validated.
+* **Milestones 13–16: Physical Device Validation [STRICTLY SUSPENDED / GATED]:**
+  * *Reason for Freeze:* Early probe (`pvr_connect_probe.c`) triggered a kernel Oops in `RemoveAndFreeStreamNode` during connection cleanup, rebooting the phone. Probe is locked with `#error`.
+  * *Unfreeze Gate:* Requires 100% completion of M11 (offline DRM-shim mock) and explicit user authorization.
+  * **M13 (Pre-Flight Safety Gate):** Battery > 50%, direct USB cable, background persistent logcat logging, dm-verity read-only check.
+  * **M14 (Non-Invasive Deployment):** App-private sandbox execution via Adrenotools zip or `/data/local/tmp/mesa-test/`; zero system/vendor partition changes.
+  * **M15 (Device Handshake & Memory Context):** Validate Bridge 1 (`SRVCORE_CONNECT` bit-5 `0x20`), BVNC `35.3.408.101` match, Bridge 6 (`DEVMEMINTCTXCREATE`), and clean teardown with zero panics.
+  * **M16 (First Hardware Compute Execution):** 1-workgroup compute shader writing `42` to PMR buffer via `RGXKICKCDM` (Bridge 129) to prove physical silicon execution. Full specs in [`PROJECT_STATUS.md`](PROJECT_STATUS.md).

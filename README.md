@@ -142,6 +142,13 @@ gcc -Wall -Wextra -Werror -O2 tests/test_bridge_v25_mock.c -o tests/test_bridge_
 > [!WARNING]
 > **Safety Notice:** Direct physical hardware testing on the Redmi Note 14 5G is currently suspended. Previous unvalidated low-level probes against `/dev/dri/renderD128` caused kernel panics during transport layer stream cleanup (`RemoveAndFreeStreamNode` Oops). Probe [`tools/pvr_connect_probe.c`](tools/pvr_connect_probe.c) remains permanently locked with `#error`. All validation in this repository is static, mock-tested, and cross-compiled offline.
 
+### Gated Physical Hardware Validation Roadmap (M13–M16)
+Physical device testing is **not** cancelled, but gated behind strict unfreeze conditions (completion of offline DRM-shim validation in Milestone 11):
+* **M13 (Pre-Flight Safety Gate):** Battery > 50%, direct USB connection, background continuous `adb logcat` pipe, dm-verity read-only verification.
+* **M14 (Non-Invasive Deployment):** Execution strictly inside unprivileged app sandboxes (Adrenotools zip in Eden/Azahar or `/data/local/tmp/mesa-test/`), with 0 modifications to system or vendor partitions.
+* **M15 (Isolated Handshake & Memory Context):** Test Bridge 1 `SRVCORE_CONNECT` with verified bit-5 (`0x20`), verify BVNC `35.3.408.101`, and Bridge 6 `DEVMEMINTCTXCREATE` without submitting draw commands.
+* **M16 (First Hardware Compute Execution):** Execute a minimal 1-workgroup compute shader writing integer `42` via `RGXKICKCDM` (Bridge 129) to prove physical GPU execution. Detailed specs are documented in [`PROJECT_STATUS.md`](PROJECT_STATUS.md#phase-5-gated-reversible-physical-device-validation-strictly-suspended).
+
 ---
 
 ## Feature Support & Roadmap (Things to Do)

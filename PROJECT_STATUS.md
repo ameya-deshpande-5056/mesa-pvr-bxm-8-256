@@ -205,10 +205,73 @@ Legend: [X] Completed & Verified  |  [~] In Progress  |  [ ] Planned / Pending
   * *Task:* Implement compute-shader format decompression or hook into DXVK's format emulation layer to transcode BC textures to uncompressed/ASTC formats.
 
 ### Phase 5: Gated, Reversible Physical Device Validation (Strictly Suspended)
-- [ ] **M13: Pre-Flight Safety Verification Gate** (Battery > 50%, USB direct, logcat background monitor).
-- [ ] **M14: Non-Invasive App-Private Deployment** (Deploy exclusively in `/data/local/tmp/mesa-test/` or via in-app Adrenotools; zero system/vendor partition modifications).
-- [ ] **M15: Isolated Device & Context Enumeration** (Verify Bridge 1 connect and Bridge 6 memory context creation without command submission).
-- [ ] **M16: Minimal Compute Workload Execution** (Execute single 1-workgroup compute shader writing 1 integer to verify end-to-end hardware execution).
+
+> [!CAUTION]
+> **SAFETY STATUS: TEMPORARILY SUSPENDED / GATED.**
+> This phase governs testing on the physical Redmi Note 14 5G hardware. It is currently frozen to protect your personal device against kernel panics. It will remain locked until **Milestone 11 (offline DRM-shim mock)** validates that command submission and teardown are 100% stable.
+
+#### Safety Incident Post-Mortem & Freezing Rationale
+In early project research, a custom probe utility ([`tools/pvr_connect_probe.c`](tools/pvr_connect_probe.c)) was executed against the physical device's kernel driver (`/dev/pvr_sync` / `pvrsrvkm.ko`). Due to subtle DDK 25.1 bridge flag requirements:
+* The probe passed flag `0x80` instead of the required bit-5 (`0x20`).
+* When `pvrsrvkm.ko` closed the connection (`ConnectionDataDestroy`), the kernel attempted to unlink a transport layer stream node, dereferenced the ASCII string `"s:27098\0"` as a pointer (`ldp x8, x9, [x0]; str x8, [x9]`), and suffered a fatal **kernel Oops in `RemoveAndFreeStreamNode`** ([`crash/dropbox.txt`](crash/dropbox.txt)), causing the phone to reboot.
+* Probe [`tools/pvr_connect_probe.c`](tools/pvr_connect_probe.c) was immediately locked with `#error`. Physical testing was suspended in favor of 100% offline host-bound development.
+
+#### Mandatory Unfreeze Verification Gate (Prerequisites)
+Physical hardware testing can only be unlocked when all of the following conditions are satisfied:
+1. **M11 Completion:** The host DRM-shim mock simulates `pvrsrvkm` bridge ioctls on Linux `x86_64` and successfully runs command submission, queue kick, and connection cleanup with 0 memory errors or stream corruptions.
+2. **Clean ABI Validation:** Static assertion tests in [`tests/test_bridge_v25_mock`](tests/test_bridge_v25_mock) pass 100%.
+3. **Explicit User Authorization:** User explicitly requests device-side execution under controlled conditions.
+
+---
+
+#### Detailed Milestone Specifications (When Unfrozen)
+
+- [ ] **M13: Pre-Flight Safety Verification Gate**
+  * **Objective:** Establish an automated, failsafe test harness environment on the host and device before issuing any hardware bridge commands.
+  * **Procedures:**
+    1. *Battery Threshold Check:* Device battery must be $> 50\%$ to prevent low-power throttling or unexpected power-management state transitions during GPU initialization.
+    2. *Direct USB Connection:* Device must be connected directly via high-quality USB-C to the host machine (no unpowered hubs or unstable wireless ADB).
+    3. *Continuous Background Logcat Pipe:* Launch a dedicated host-side background process capturing kernel and logcat buffers to disk before any binary runs:
+       ```bash
+       adb logcat -b all -v threadtime > /home/ameya/bxm-research/hardware_session.log &
+       ```
+       If a panic occurs, the exact pre-crash kernel messages are preserved on the host.
+    4. *Read-Only Partition Audit:* Confirm that `/system`, `/vendor`, and `/product` partitions remain mounted strictly read-only with dm-verity active, guaranteeing zero system corruption risk.
+
+- [ ] **M14: Non-Invasive App-Private Deployment**
+  * **Objective:** Deploy and load the driver without touching system partitions, preserving 100% stock firmware integrity.
+  * **Procedures:**
+    1. *Adrenotools Mode (Primary):* Deploy `dist/vulkan_pvr_bxm8256_adrenotools.zip` directly through the custom driver menu of Eden or Azahar. The driver executes entirely inside the app's unprivileged sandbox; stock `/vendor/lib64/vulkan.mtk.so` remains untouched.
+    2. *App-Private Shell Testing (Alternative):* If testing via standalone binary, push the executable and driver solely to `/data/local/tmp/mesa-test/`:
+       ```bash
+       adb shell "mkdir -p /data/local/tmp/mesa-test"
+       adb push dist/standalone_icd/libvulkan_powervr_mesa.so /data/local/tmp/mesa-test/
+       ```
+       Execute under the unprivileged `shell` user account (`UID 2000`).
+
+- [ ] **M15: Isolated Device & Context Enumeration (No 3D Execution)**
+  * **Objective:** Verify real silicon recognition and memory context creation over DDK 25.1 bridge ioctls without submitting any rendering or compute work.
+  * **Step-by-Step Execution Plan:**
+    1. Open `/dev/pvr_sync`.
+    2. Issue `SRVCORE_CONNECT` (Bridge 1, Func 0) with `ui32Flags = 0x20` (bit 5 set).
+    3. Read the output struct and verify the hardware BVNC matches `0x0023000301980065` (`35.3.408.101`).
+    4. Issue `DEVMEMINTCTXCREATE` (Bridge 6, Func 9) and verify kernel returns valid `hServerMemCtx` (Type 7) and `hServerMemCtxData` (Type 38).
+    5. Issue `DEVMEMINTCTXDESTROY` (Bridge 6, Func 10) to release the memory context.
+    6. Issue `SRVCORE_DISCONNECT` (Bridge 1, Func 1) and close the file descriptor.
+  * **Success Criteria:** Zero kernel panics; connection connects and cleanly disconnects with zero stream unlinking errors.
+
+- [ ] **M16: Minimal Compute Workload Execution (First Hardware Draw)**
+  * **Objective:** Prove end-to-end hardware ALU execution on the physical PowerVR BXM GPU.
+  * **Step-by-Step Execution Plan:**
+    1. Allocate a single 4096-byte PMR buffer via `PHYSMEMNEWRAMBACKEDPMR` (Bridge 6, Func 8).
+    2. Map the buffer into the 128 GB `"General"` heap (`DEVMEMXINTMAPPAGES`, Bridge 6, Func 32).
+    3. Initialize a compute context via `RGXCREATECOMPUTECONTEXT` (Bridge 129, Func 0).
+    4. Dispatch a minimal 1-workgroup compute shader that writes a single 32-bit constant (`0x2A` / `42`) to the buffer.
+    5. Submit the compute kick via `RGXKICKCDM` (Bridge 129, Func 8).
+    6. Synchronize on the firmware fence object and read back buffer memory via CPU mapping.
+    7. Assert that the memory at offset 0 contains `42`.
+    8. Execute clean context and PMR teardown (`PMRUNREFPMR`, Bridge 6, Func 7).
+  * **Success Criteria:** Value `42` successfully verified from physical GPU execution with zero kernel stability warnings.
 
 ---
 

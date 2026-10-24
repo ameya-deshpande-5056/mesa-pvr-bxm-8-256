@@ -48,7 +48,6 @@ jobs:
             flex \
             glslang-tools \
             pkg-config \
-            libdrm-dev \
             gcc-aarch64-linux-gnu \
             binutils-aarch64-linux-gnu
 

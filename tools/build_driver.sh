@@ -56,6 +56,7 @@ if [ ! -f "${BUILD_DIR}/build.ninja" ]; then
         -Degl=disabled \
         -Dgbm=disabled \
         -Dzstd=disabled \
+        -Dspirv-tools=disabled \
         --force-fallback-for=libdrm \
         -Dallow-fallback-for=libdrm \
         -Dlibdrm:default_library=static \

@@ -35,7 +35,7 @@
 * **Mesa Source Directory:** [`research/mesa-src`](research/mesa-src) (tracked as official Git submodule pointing to [`https://gitlab.freedesktop.org/ameya-deshpande-5056/mesa.git`](https://gitlab.freedesktop.org/ameya-deshpande-5056/mesa.git)).
 * **Active Mesa Branch:** `bxm-ddk25-offline` (clean working tree, up to date with `myfork/bxm-ddk25-offline`).
 * **HEAD Mesa Commit:** `f1a4d5929bcf` — *"imagination: Align compute workgroup and push constant limits with B-Series profile"*
-* **Root Repository Commit:** `779672b` on `main` (tag `v0.1.0-alpha`).
+* **Root Repository Commit:** `3ba6962` on `main`.
   * Commit 1 ([`b60cf5fb70df`](research/mesa-src)): Added BVNC `35.3.408.101` profile (`bxm-8-256.h`).
   * Commit 2 ([`db29f27f10e8`](research/mesa-src)): Added DDK 25.1 bridge header (`pvr_srv_bridge_v25.h`), dual-stack dispatch, and B-Series 16-heap discovery.
   * Commit 3 ([`29856e95783c`](research/mesa-src)): Fixed PMR unref to Func 7 (`PMRUNREFPMR`), implemented DDK 25.1 PMR alloc for Func 8 (`PHYSMEMNEWRAMBACKEDPMR`), and updated verified hardware constants.

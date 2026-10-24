@@ -27,7 +27,7 @@ If you are an incoming AI agent or engineer entering a new conversation context 
      - **Adrenotools `.zip` package (`dist/vulkan_pvr_bxm8256_adrenotools.zip`): 100% COMPLETE**.
      - **Standalone ICD manifest & `.zip` (`dist/vulkan_pvr_bxm8256_icd.zip`): 100% COMPLETE**.
      - **PCO Compiler & Device Limits (Milestone 12): 100% COMPLETE**.
-   * Mesa branch: `bxm-ddk25-offline` in [`research/mesa-src`](research/mesa-src), clean working tree at commit `4dc1162ef527`.
+   * Mesa branch: `bxm-ddk25-offline` in [`research/mesa-src`](research/mesa-src), clean working tree at commit `f1a4d5929bcf`.
    * Cross-compiled driver binary: [`research/mesa-src/build-android/src/imagination/vulkan/libvulkan_powervr_mesa.so`](research/mesa-src/build-android/src/imagination/vulkan/libvulkan_powervr_mesa.so) (12 MB ELF64, 0 non-Bionic dependencies).
    * Host regression test: [`tests/test_bridge_v25_mock`](tests/test_bridge_v25_mock) (passing 100%).
 

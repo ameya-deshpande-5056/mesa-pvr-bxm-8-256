@@ -1,0 +1,213 @@
+From 46a85fe612730066f566b451e87a5476537aadd9 Mon Sep 17 00:00:00 2001
+From: Ameya Deshpande <adeshpande610@gmail.com>
+Date: Fri, 23 Oct 2026 21:17:37 +0530
+Subject: [PATCH 3/5] imagination: Correct DDK 25.1 PMR allocation and
+ unreference ABI and update verified BXM-8-256 features
+
+- Fix PVR_SRV_BRIDGE_MM_PMRUNREFPMR_V25 from Func 1 (PMRUNEXPORTPMR) to Func 7 (PMRUNREFPMR).
+- Implement DDK 25.1 branch in pvr_srv_alloc_pmr() using Func 8 (PHYSMEMNEWRAMBACKEDPMR) with 56-byte input and 20-byte output structures.
+- Add compile-time _Static_assert guards for PHYSMEMNEWRAMBACKEDPMR structure sizes and field offsets.
+- Add NULL PMR guard in pvr_srv_free_pmr() and clear pmr pointer after buffer release.
+- Update BXM-8-256 device_info with hardware parameters extracted directly from pvrsrvkm.ko feature tables (num_clusters=1, fbcdc_algorithm=4, slc_cache_line_size=1024, tile_size=32x32).
+---
+ .../common/device_info/bxm-8-256.h            | 19 +++++----
+ .../vulkan/winsys/pvrsrvkm/pvr_srv_bo.c       |  1 +
+ .../vulkan/winsys/pvrsrvkm/pvr_srv_bridge.c   | 40 +++++++++++++++++++
+ .../winsys/pvrsrvkm/pvr_srv_bridge_v25.h      | 39 +++++++++++++++++-
+ 4 files changed, 90 insertions(+), 9 deletions(-)
+
+diff --git a/src/imagination/common/device_info/bxm-8-256.h b/src/imagination/common/device_info/bxm-8-256.h
+index ea10721dc048..3da2dfa0f24e 100644
+--- a/src/imagination/common/device_info/bxm-8-256.h
++++ b/src/imagination/common/device_info/bxm-8-256.h
+@@ -12,7 +12,7 @@
+ #include "pvr_device_info.h"
+ 
+ #define PVR_DEVICE_IDENT_35_V_408_101 \
+-   .device_id = 0x35408101, .series_name = "B-Series", \
++   .device_id = 0x35010101, .series_name = "B-Series", \
+    .public_name = "BXM-8-256", .arch = PVR_DEVICE_ARCH_ROGUE
+ 
+ static const struct pvr_device_features pvr_device_features_35_V_408_101 = {
+@@ -42,7 +42,7 @@ static const struct pvr_device_features pvr_device_features_35_V_408_101 = {
+    .has_simple_internal_parameter_format_v2 = true,
+    .has_simple_parameter_format_version = true,
+    .has_slc_cache_line_size_bits = true,
+-   .has_tile_size_16x16 = true,
++   .has_tile_size_16x16 = false,
+    .has_tile_size_x = true,
+    .has_tile_size_y = true,
+    .has_tpu_border_colour_enhanced = true,
+@@ -66,26 +66,29 @@ static const struct pvr_device_features pvr_device_features_35_V_408_101 = {
+    .has_vdm_cam_size = true,
+    .has_xpu_max_slaves = true,
+ 
++   /* Values extracted directly from pvrsrvkm.ko binary feature tables for BVNC 35.3.408.101 */
++   .fbcdc_algorithm = 4U,              /* aui16_RGX_FEATURE_FBCDC_ALGORITHM_values[1] = 4 */
++   .num_clusters = 1U,                 /* aui16_RGX_FEATURE_NUM_CLUSTERS_values[1] = 1 */
++   .slc_cache_line_size_bits = 1024U,  /* aui16_RGX_FEATURE_SLC_CACHE_LINE_SIZE_BITS_values[1] = 1024 */
++   .tile_size_x = 32U,                 /* aui16_RGX_FEATURE_TILE_SIZE_X_values[1] = 32 */
++   .tile_size_y = 32U,                 /* aui16_RGX_FEATURE_TILE_SIZE_Y_values[1] = 32 */
++
++   /* Provisional / unverified compiler & architecture values */
+    .common_store_size_in_dwords = 4096U * 4U,
+-   .fbcdc_algorithm = 50U,
+    .isp_max_tiles_in_flight = 6U,
+    .isp_samples_per_pixel = 1U,
+    .max_instances_per_pds_task = 32U,
+    .max_multisample = 4U,
+    .max_partitions = 12U,
+    .max_usc_tasks = 156U,
+-   .num_clusters = 1U,
+    .num_raster_pipes = 1U,
+    .simple_parameter_format_version = 2U,
+-   .slc_cache_line_size_bits = 512U,
+-   .tile_size_x = 16U,
+-   .tile_size_y = 16U,
+    .tpu_parallel_instances = 4U,
+    .transform_feedback_query_bits = 32U,
+    .unified_store_depth = 256U,
+    .usc_itr_parallel_instances = 16U,
+    .usc_min_output_registers_per_pix = 2U,
+-   .usc_slots = 96U,
++   .usc_slots = 96U,                   /* Provisional: compiler register allocation target */
+    .uvs_banks = 8U,
+    .uvs_pba_entries = 160U,
+    .uvs_vtx_entries = 144U,
+diff --git a/src/imagination/vulkan/winsys/pvrsrvkm/pvr_srv_bo.c b/src/imagination/vulkan/winsys/pvrsrvkm/pvr_srv_bo.c
+index 5a862bd86fa7..a7e244e3ba84 100644
+--- a/src/imagination/vulkan/winsys/pvrsrvkm/pvr_srv_bo.c
++++ b/src/imagination/vulkan/winsys/pvrsrvkm/pvr_srv_bo.c
+@@ -110,6 +110,7 @@ static void buffer_release(struct pvr_srv_winsys_bo *srv_bo)
+ 
+    ws = srv_bo->base.ws;
+    pvr_srv_free_pmr(ws->render_fd, srv_bo->pmr);
++   srv_bo->pmr = NULL;
+ 
+    if (srv_bo->is_display_buffer)
+       pvr_winsys_helper_display_buffer_destroy(ws, srv_bo->handle);
+diff --git a/src/imagination/vulkan/winsys/pvrsrvkm/pvr_srv_bridge.c b/src/imagination/vulkan/winsys/pvrsrvkm/pvr_srv_bridge.c
+index 2c605fd1e455..6c3858d6a226 100644
+--- a/src/imagination/vulkan/winsys/pvrsrvkm/pvr_srv_bridge.c
++++ b/src/imagination/vulkan/winsys/pvrsrvkm/pvr_srv_bridge.c
+@@ -949,6 +949,43 @@ VkResult pvr_srv_alloc_pmr(int fd,
+       strnlen(annotation, DEVMEM_ANNOTATION_MAX_LEN - 1) + 1;
+    uint32_t mapping_table = 0;
+ 
++   if (pvr_srv_get_ddk_major(fd) == 25) {
++      struct pvr_srv_bridge_physmem_new_ram_backed_pmr_in_v25 cmd_v25 = {
++         .ui64Size = size,
++         .pui32MappingTable = &mapping_table,
++         .pszAnnotation = annotation,
++         .ui32AnnotationLength = annotation_size,
++         .ui32Log2PageSize = log2_page_size,
++         .ui32PhyBlocks = phy_blocks,
++         .ui32VirtBlocks = virt_blocks,
++         .ui32PDumpFlags = 0,
++         .ui32PID = pid,
++         .ui64Flags = flags,
++      };
++      struct pvr_srv_bridge_physmem_new_ram_backed_pmr_out_v25 ret_v25 = {
++         .ui32Error = PVR_SRV_ERROR_BRIDGE_CALL_FAILED,
++      };
++
++      int result = pvr_srv_bridge_call(fd,
++                                       PVR_SRV_BRIDGE_MM_V25,
++                                       PVR_SRV_BRIDGE_MM_PHYSMEMNEWRAMBACKEDPMR_V25,
++                                       &cmd_v25,
++                                       sizeof(cmd_v25),
++                                       &ret_v25,
++                                       sizeof(ret_v25));
++      if (result || ret_v25.ui32Error != PVR_SRV_OK) {
++         *pmr_out = NULL;
++         return vk_errorf(NULL,
++                          VK_ERROR_OUT_OF_DEVICE_MEMORY,
++                          "PHYSMEMNEWRAMBACKEDPMR (v25) failed, error=%u, errno=%s",
++                          ret_v25.ui32Error,
++                          strerror(errno));
++      }
++
++      *pmr_out = ret_v25.hPMR;
++      return VK_SUCCESS;
++   }
++
+    struct pvr_srv_physmem_new_ram_backed_locked_pmr_cmd cmd = {
+       .size = size,
+       .block_size = block_size,
+@@ -989,6 +1026,9 @@ VkResult pvr_srv_alloc_pmr(int fd,
+ 
+ void pvr_srv_free_pmr(int fd, void *pmr)
+ {
++   if (!pmr)
++      return;
++
+    if (pvr_srv_get_ddk_major(fd) == 25) {
+       struct pvr_srv_bridge_pmr_unref_pmr_in_v25 cmd_v25 = {
+          .hPMR = pmr,
+diff --git a/src/imagination/vulkan/winsys/pvrsrvkm/pvr_srv_bridge_v25.h b/src/imagination/vulkan/winsys/pvrsrvkm/pvr_srv_bridge_v25.h
+index 830a1380f809..00197d4e96a3 100644
+--- a/src/imagination/vulkan/winsys/pvrsrvkm/pvr_srv_bridge_v25.h
++++ b/src/imagination/vulkan/winsys/pvrsrvkm/pvr_srv_bridge_v25.h
+@@ -33,7 +33,9 @@
+ #define PVR_SRV_BRIDGE_SRVCORE_DISCONNECT_V25 1U
+ 
+ /* Bridge 6: MM (DevMem) */
+-#define PVR_SRV_BRIDGE_MM_PMRUNREFPMR_V25                 1U
++#define PVR_SRV_BRIDGE_MM_PMRUNEXPORTPMR_V25              1U
++#define PVR_SRV_BRIDGE_MM_PMRUNREFPMR_V25                 7U
++#define PVR_SRV_BRIDGE_MM_PHYSMEMNEWRAMBACKEDPMR_V25       8U
+ #define PVR_SRV_BRIDGE_MM_PHYSMEMNEWRAMBACKEDLOCKEDPMR_V25 8U
+ #define PVR_SRV_BRIDGE_MM_DEVMEMINTCTXCREATE_V25          9U
+ #define PVR_SRV_BRIDGE_MM_DEVMEMINTCTXDESTROY_V25         10U
+@@ -206,6 +208,25 @@ struct pvr_srv_bridge_devmemx_int_unmap_pages_out_v25 {
+    uint32_t ui32Error;
+ } __attribute__((packed));
+ 
++struct pvr_srv_bridge_physmem_new_ram_backed_pmr_in_v25 {
++   uint64_t ui64Size;
++   const uint32_t *pui32MappingTable;
++   const char *pszAnnotation;
++   uint32_t ui32AnnotationLength;
++   uint32_t ui32Log2PageSize;
++   uint32_t ui32PhyBlocks;
++   uint32_t ui32VirtBlocks;
++   uint32_t ui32PDumpFlags;
++   uint32_t ui32PID;
++   uint64_t ui64Flags;
++} __attribute__((packed));
++
++struct pvr_srv_bridge_physmem_new_ram_backed_pmr_out_v25 {
++   void *hPMR;                 /* Handle Type 4 */
++   uint32_t ui32Error;
++   uint64_t ui64Flags;
++} __attribute__((packed));
++
+ struct pvr_srv_bridge_pmr_unref_pmr_in_v25 {
+    void *hPMR;                 /* Handle Type 4 */
+ } __attribute__((packed));
+@@ -320,6 +341,22 @@ _Static_assert(offsetof(struct pvr_srv_bridge_devmemx_int_map_pages_in_v25, ui64
+ _Static_assert(sizeof(struct pvr_srv_bridge_devmemx_int_unmap_pages_in_v25) == 16, "unmap_pages_in size mismatch");
+ _Static_assert(sizeof(struct pvr_srv_bridge_devmemx_int_unmap_pages_out_v25) == 4, "unmap_pages_out size mismatch");
+ 
++_Static_assert(sizeof(struct pvr_srv_bridge_physmem_new_ram_backed_pmr_in_v25) == 56, "new_ram_backed_pmr_in size mismatch");
++_Static_assert(sizeof(struct pvr_srv_bridge_physmem_new_ram_backed_pmr_out_v25) == 20, "new_ram_backed_pmr_out size mismatch");
++_Static_assert(offsetof(struct pvr_srv_bridge_physmem_new_ram_backed_pmr_in_v25, ui64Size) == 0, "size offset");
++_Static_assert(offsetof(struct pvr_srv_bridge_physmem_new_ram_backed_pmr_in_v25, pui32MappingTable) == 8, "mapping_table offset");
++_Static_assert(offsetof(struct pvr_srv_bridge_physmem_new_ram_backed_pmr_in_v25, pszAnnotation) == 16, "annotation offset");
++_Static_assert(offsetof(struct pvr_srv_bridge_physmem_new_ram_backed_pmr_in_v25, ui32AnnotationLength) == 24, "annotation_length offset");
++_Static_assert(offsetof(struct pvr_srv_bridge_physmem_new_ram_backed_pmr_in_v25, ui32Log2PageSize) == 28, "log2_page_size offset");
++_Static_assert(offsetof(struct pvr_srv_bridge_physmem_new_ram_backed_pmr_in_v25, ui32PhyBlocks) == 32, "phy_blocks offset");
++_Static_assert(offsetof(struct pvr_srv_bridge_physmem_new_ram_backed_pmr_in_v25, ui32VirtBlocks) == 36, "virt_blocks offset");
++_Static_assert(offsetof(struct pvr_srv_bridge_physmem_new_ram_backed_pmr_in_v25, ui32PDumpFlags) == 40, "pdump_flags offset");
++_Static_assert(offsetof(struct pvr_srv_bridge_physmem_new_ram_backed_pmr_in_v25, ui32PID) == 44, "pid offset");
++_Static_assert(offsetof(struct pvr_srv_bridge_physmem_new_ram_backed_pmr_in_v25, ui64Flags) == 48, "flags offset");
++_Static_assert(offsetof(struct pvr_srv_bridge_physmem_new_ram_backed_pmr_out_v25, hPMR) == 0, "out hPMR offset");
++_Static_assert(offsetof(struct pvr_srv_bridge_physmem_new_ram_backed_pmr_out_v25, ui32Error) == 8, "out error offset");
++_Static_assert(offsetof(struct pvr_srv_bridge_physmem_new_ram_backed_pmr_out_v25, ui64Flags) == 12, "out flags offset");
++
+ _Static_assert(sizeof(struct pvr_srv_bridge_pmr_unref_pmr_in_v25) == 8, "unref_pmr_in size mismatch");
+ _Static_assert(sizeof(struct pvr_srv_bridge_pmr_unref_pmr_out_v25) == 4, "unref_pmr_out size mismatch");
+ 
+-- 
+2.43.0
+

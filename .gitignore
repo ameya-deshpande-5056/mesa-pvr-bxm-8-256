@@ -1,0 +1,49 @@
+# Build directories and intermediates
+build/
+build-*/
+research/mesa-src/build*/
+*.o
+*.a
+*.so
+*.ninja
+.ninja_*
+compile_commands.json
+
+# Native compiler helper binaries and partition tools
+tools/native-bin/
+tools/lpdumps
+tools/lpunpack
+
+# Test binaries (compiled on host)
+tests/test_bridge_v25_mock
+
+# Proprietary OEM firmware and binary modules (preserves legal compliance)
+firmware/
+binaries/*.so
+binaries/*.disasm
+binaries/vkext
+binaries/vkinfo
+binaries/vkprops
+
+# Raw device logs (contains device identifiers/OAuth tokens)
+crash/logcat.txt
+
+# Generated distribution archives
+dist/*.zip
+dist/standalone_icd/libvulkan_powervr_mesa.so
+
+# Python bytecode and caches
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Editor and OS metadata
+.DS_Store
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+

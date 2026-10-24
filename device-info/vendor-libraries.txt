@@ -1,0 +1,74 @@
+/vendor/lib64/egl:
+total 1620
+lrwxr-xr-x 1 root shell      20 2009-01-01 05:30 libEGL_mtk.so -> mt6855/libEGL_mtk.so
+-rw-r--r-- 1 root root  2164984 2009-01-01 05:30 libGLES_meow.so
+lrwxr-xr-x 1 root shell      26 2009-01-01 05:30 libGLESv1_CM_mtk.so -> mt6855/libGLESv1_CM_mtk.so
+lrwxr-xr-x 1 root shell      23 2009-01-01 05:30 libGLESv2_mtk.so -> mt6855/libGLESv2_mtk.so
+-rw-r--r-- 1 root root   202360 2009-01-01 05:30 libMEOW_data.so
+-rw-r--r-- 1 root root   859392 2009-01-01 05:30 libMEOW_gift.so
+-rw-r--r-- 1 root root   731304 2009-01-01 05:30 libMEOW_mfrc_ext.so
+-rw-r--r-- 1 root root   201872 2009-01-01 05:30 libMEOW_qt.so
+-rw-r--r-- 1 root root   592392 2009-01-01 05:30 libMEOW_trace.so
+drwxr-xr-x 2 root shell      27 2009-01-01 05:30 mt6789
+drwxr-xr-x 2 root shell     111 2009-01-01 05:30 mt6855
+drwxr-xr-x 2 root shell      27 2009-01-01 05:30 mt6895
+drwxr-xr-x 2 root shell      27 2009-01-01 05:30 mt6991
+drwxr-xr-x 2 root shell      27 2009-01-01 05:30 mt6993
+
+/vendor/lib64/hw:
+total 96
+-????????? ? ?    ?         ?                ? android.hardware.audio.effect.aidl-impl-mediatek.so
+-????????? ? ?    ?         ?                ? android.hardware.bluetooth.audio@2.0-impl.so
+-????????? ? ?    ?         ?                ? android.hardware.bluetooth.audio@2.1-impl.so
+lrwxr-xr-x 1 root shell    60 2009-01-01 05:30 android.hardware.camera.provider@2.6-impl-mediatek.so -> mt6855/android.hardware.camera.provider@2.6-impl-mediatek.so
+-????????? ? ?    ?         ?                ? android.hardware.gnss-impl-mediatek.so
+-rw-r--r-- 1 root root  84608 2009-01-01 05:30 android.hardware.renderscript@1.0-impl.so
+-????????? ? ?    ?         ?                ? android.hardware.sensors@2.X-subhal-mediatek.so
+-????????? ? ?    ?         ?                ? android.hardware.soundtrigger3-impl.so
+-????????? ? ?    ?         ?                ? audio.bluetooth.default.so
+-????????? ? ?    ?         ?                ? audio.primary.default.so
+-????????? ? ?    ?         ?                ? audio.primary.mediatek.so
+lrw-r--r-- 1 root root     25 2009-01-01 05:30 audio.primary.mt6855.so -> audio.primary.mediatek.so
+-????????? ? ?    ?         ?                ? audio.r_submix.default.so
+-????????? ? ?    ?         ?                ? audio.r_submix.mediatek.so
+lrw-r--r-- 1 root root     26 2009-01-01 05:30 audio.r_submix.mt6855.so -> audio.r_submix.mediatek.so
+-????????? ? ?    ?         ?                ? audio.usb.default.so
+-????????? ? ?    ?         ?                ? audio_policy.stub.so
+-????????? ? ?    ?         ?                ? consumerir.default.so
+-????????? ? ?    ?         ?                ? displayfeature.default.so
+-????????? ? ?    ?         ?                ? fingerprint.goodix_fod.so
+-????????? ? ?    ?         ?                ? gps.default.so
+-rw-r--r-- 1 root root  52432 2009-01-01 05:30 gralloc.default.so
+-????????? ? ?    ?         ?                ? hwcomposer.mtk_common.so
+-????????? ? ?    ?         ?                ? libmbrainImpl.so
+lrwxr-xr-x 1 root shell    29 2009-01-01 05:30 libpvr_mapper_utils.so -> mt6855/libpvr_mapper_utils.so
+-????????? ? ?    ?         ?                ? local_time.default.so
+lrwxr-xr-x 1 root shell    24 2009-01-01 05:30 mapper.powervr.so -> mt6855/mapper.powervr.so
+drwxr-xr-x 2 root shell    27 2009-01-01 05:30 mt6789
+drwxr-xr-x 2 root shell   359 2009-01-01 05:30 mt6855
+drwxr-xr-x 2 root shell    27 2009-01-01 05:30 mt6895
+drwxr-xr-x 2 root shell    27 2009-01-01 05:30 mt6991
+drwxr-xr-x 2 root shell    27 2009-01-01 05:30 mt6993
+-????????? ? ?    ?         ?                ? mtkflp.default.so
+-????????? ? ?    ?         ?                ? mtkgeofence.default.so
+-????????? ? ?    ?         ?                ? power.default.so
+-????????? ? ?    ?         ?                ? sensors.dynamic_sensor_hal.so
+-????????? ? ?    ?         ?                ? sensors.mediatek.V2.0.so
+lrw-r--r-- 1 root root     24 2009-01-01 05:30 sensors.mt6855.so -> sensors.mediatek.V2.0.so
+-????????? ? ?    ?         ?                ? sound_trigger.primary.default.so
+-????????? ? ?    ?         ?                ? thermal_hal.so
+-????????? ? ?    ?         ?                ? vendor.mediatek.hardware.audio-impl.so
+-????????? ? ?    ?         ?                ? vendor.mediatek.hardware.bluetooth.audio@2.1-impl.so
+-????????? ? ?    ?         ?                ? vendor.mediatek.hardware.bluetooth.audio@2.2-impl.so
+-????????? ? ?    ?         ?                ? vendor.mediatek.hardware.camera.atms_aidl@1.0-impl.so
+-????????? ? ?    ?         ?                ? vendor.mediatek.hardware.camera.bgservice_aidl@1.0-impl.so
+lrwxr-xr-x 1 root shell    55 2009-01-01 05:30 vendor.mediatek.hardware.camera.ccap@1.0-impl.so -> mt6855/vendor.mediatek.hardware.camera.ccap@1.0-impl.so
+lrwxr-xr-x 1 root shell    62 2009-01-01 05:30 vendor.mediatek.hardware.camera.isphal_aidl@1.0-impl.so -> mt6855/vendor.mediatek.hardware.camera.isphal_aidl@1.0-impl.so
+-????????? ? ?    ?         ?                ? vendor.mediatek.hardware.gnss-impl.so
+-????????? ? ?    ?         ?                ? vendor.mediatek.hardware.gnss.batching-impl.so
+-????????? ? ?    ?         ?                ? vendor.mediatek.hardware.mtkpower-aidl-impl.so
+-????????? ? ?    ?         ?                ? vendor.mediatek.hardware.nvram-impl.so
+lrwxr-xr-x 1 root shell    47 2009-01-01 05:30 vendor.mediatek.hardware.pq_aidl-impl.so -> mt6855/vendor.mediatek.hardware.pq_aidl-impl.so
+-????????? ? ?    ?         ?                ? vendor.mediatek.hardware.videotelephony-impl.so
+-????????? ? ?    ?         ?                ? vibrator.default.so
+lrwxr-xr-x 1 root shell    20 2009-01-01 05:30 vulkan.mtk.so -> mt6855/vulkan.mtk.so

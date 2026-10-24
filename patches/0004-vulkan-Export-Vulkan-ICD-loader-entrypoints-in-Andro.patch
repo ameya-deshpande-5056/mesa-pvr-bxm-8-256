@@ -1,0 +1,48 @@
+From 6da73eb38ca74a07508e504bab2fe8614d5b41d5 Mon Sep 17 00:00:00 2001
+From: Ameya Deshpande <adeshpande610@gmail.com>
+Date: Sat, 24 Oct 2026 17:09:39 +0530
+Subject: [PATCH 4/5] vulkan: Export Vulkan ICD loader entrypoints in Android
+ symbol map
+
+Export vk_icdGetInstanceProcAddr, vk_icdGetPhysicalDeviceProcAddr, and
+vk_icdNegotiateLoaderICDInterfaceVersion alongside HMI in vulkan-android.sym.
+This enables dual compatibility:
+1. Android HAL loader and adrenotools custom driver loading via HMI.
+2. Standard desktop/container Vulkan loaders (Winlator, Gamehub, Box64, Wine,
+   DXVK) loading the driver via ICD JSON manifests without symbol stripping.
+---
+ src/vulkan/vulkan-android.sym             | 6 ++++++
+ src/vulkan/vulkan-icd-android-symbols.txt | 3 +++
+ 2 files changed, 9 insertions(+)
+
+diff --git a/src/vulkan/vulkan-android.sym b/src/vulkan/vulkan-android.sym
+index 7148e0920c6b..06da7c3b1fd9 100644
+--- a/src/vulkan/vulkan-android.sym
++++ b/src/vulkan/vulkan-android.sym
+@@ -5,6 +5,12 @@
+ 		# instance of struct hwvulkan_module_t.
+ 		HMI;
+ 
++		# Standard Vulkan ICD entrypoints for desktop/container loaders (Winlator, Box64, Termux)
++		# and adrenotools custom driver loading.
++		vk_icdGetInstanceProcAddr;
++		vk_icdGetPhysicalDeviceProcAddr;
++		vk_icdNegotiateLoaderICDInterfaceVersion;
++
+ 	local:
+ 		# When static linking LLVM, all its symbols are public API.
+ 		# That may cause symbol collision, so explicitly demote everything.
+diff --git a/src/vulkan/vulkan-icd-android-symbols.txt b/src/vulkan/vulkan-icd-android-symbols.txt
+index 7e547aa5f8a9..3ef97a197465 100644
+--- a/src/vulkan/vulkan-icd-android-symbols.txt
++++ b/src/vulkan/vulkan-icd-android-symbols.txt
+@@ -2,3 +2,6 @@
+ # as HAL_MODULE_INFO_SYM (which is just a #define for HMI) and it's an
+ # instance of struct hwvulkan_module_t.
+ HMI
++(optional) vk_icdGetInstanceProcAddr
++(optional) vk_icdGetPhysicalDeviceProcAddr
++(optional) vk_icdNegotiateLoaderICDInterfaceVersion
+-- 
+2.43.0
+

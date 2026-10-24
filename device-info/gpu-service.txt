@@ -1,0 +1,588 @@
+Stable Game Driver: unsupported
+Pre-release Game Driver: unsupported
+
+Memory snapshot for GPU 0:
+Global total: 440025088
+Proc 1018 total: 61440
+Proc 1019 total: 57344
+Proc 1022 total: 57344
+Proc 1116 total: 108818432
+Proc 1298 total: 57344
+Proc 1310 total: 57344
+Proc 1362 total: 57344
+Proc 1367 total: 57344
+Proc 1407 total: 57344
+Proc 1824 total: 13049856
+Proc 2284 total: 33464320
+Proc 2555 total: 116936704
+Proc 2560 total: 23097344
+Proc 3814 total: 57344
+Proc 5226 total: 5410816
+Proc 5905 total: 57344
+Proc 7475 total: 57344
+Proc 10958 total: 4096
+Proc 11712 total: 4096
+Proc 12395 total: 57344
+Proc 12425 total: 42192896
+Proc 13826 total: 13860864
+Proc 16893 total: 667648
+Proc 17614 total: 57344
+Proc 19284 total: 61440
+Proc 20343 total: 57344
+Proc 25448 total: 57344
+Proc 28281 total: 28401664
+Proc 28833 total: 6639616
+Proc 31109 total: 57344
+
+driverPackageName = system
+driverVersionName = 
+driverVersionCode = 0
+driverBuildTime = 0
+glLoadingCount = 43
+glLoadingFailureCount = 0
+angleLoadingCount = 0
+angleLoadingFailureCount = 0
+vkLoadingCount = 17
+vkLoadingFailureCount = 0
+vulkanVersion = 4206592
+cpuVulkanVersion = 0
+glesVersion = 196610
+
+appPackageName = com.android.deskclock
+driverVersionCode = 0
+cpuVulkanInUse = 0
+falsePrerotation = 0
+gles1InUse = 0
+angleInUse = 0
+createdGlesContext = 0
+createdVulkanDevice = 0
+createdVulkanSwapchain = 0
+vulkanApiVersion = 0x0
+vulkanDeviceFeaturesEnabled = 0x0
+glDriverLoadingTime: 100875692
+angleDriverLoadingTime:
+vkDriverLoadingTime:
+vulkanInstanceExtensions:
+vulkanDeviceExtensions:
+vulkanEngineNames:
+
+appPackageName = com.nextbillion.groww
+driverVersionCode = 0
+cpuVulkanInUse = 0
+falsePrerotation = 0
+gles1InUse = 0
+angleInUse = 0
+createdGlesContext = 1
+createdVulkanDevice = 0
+createdVulkanSwapchain = 0
+vulkanApiVersion = 0x404000
+vulkanDeviceFeaturesEnabled = 0x0
+glDriverLoadingTime: 100875692
+angleDriverLoadingTime:
+vkDriverLoadingTime: 18567692
+vulkanInstanceExtensions:
+vulkanDeviceExtensions:
+vulkanEngineNames: ,
+
+appPackageName = com.google.android.gm
+driverVersionCode = 0
+cpuVulkanInUse = 0
+falsePrerotation = 0
+gles1InUse = 0
+angleInUse = 0
+createdGlesContext = 1
+createdVulkanDevice = 0
+createdVulkanSwapchain = 0
+vulkanApiVersion = 0x404000
+vulkanDeviceFeaturesEnabled = 0x0
+glDriverLoadingTime: 100875692 100875692 100875692 100875692 100875692
+angleDriverLoadingTime:
+vkDriverLoadingTime: 21298154 22640385 20210385 8402461 29778462
+vulkanInstanceExtensions:
+vulkanDeviceExtensions:
+vulkanEngineNames: ,
+
+appPackageName = com.linkedin.android
+driverVersionCode = 0
+cpuVulkanInUse = 0
+falsePrerotation = 0
+gles1InUse = 0
+angleInUse = 0
+createdGlesContext = 1
+createdVulkanDevice = 0
+createdVulkanSwapchain = 0
+vulkanApiVersion = 0x404000
+vulkanDeviceFeaturesEnabled = 0x0
+glDriverLoadingTime: 100875692
+angleDriverLoadingTime:
+vkDriverLoadingTime: 22013308
+vulkanInstanceExtensions:
+vulkanDeviceExtensions:
+vulkanEngineNames: ,
+
+appPackageName = org.mozilla.firefox
+driverVersionCode = 0
+cpuVulkanInUse = 0
+falsePrerotation = 0
+gles1InUse = 0
+angleInUse = 0
+createdGlesContext = 0
+createdVulkanDevice = 0
+createdVulkanSwapchain = 0
+vulkanApiVersion = 0x0
+vulkanDeviceFeaturesEnabled = 0x0
+glDriverLoadingTime: 100875692
+angleDriverLoadingTime:
+vkDriverLoadingTime:
+vulkanInstanceExtensions:
+vulkanDeviceExtensions:
+vulkanEngineNames:
+
+appPackageName = com.digilocker.android
+driverVersionCode = 0
+cpuVulkanInUse = 0
+falsePrerotation = 0
+gles1InUse = 0
+angleInUse = 0
+createdGlesContext = 0
+createdVulkanDevice = 0
+createdVulkanSwapchain = 0
+vulkanApiVersion = 0x0
+vulkanDeviceFeaturesEnabled = 0x0
+glDriverLoadingTime: 100875692
+angleDriverLoadingTime:
+vkDriverLoadingTime:
+vulkanInstanceExtensions:
+vulkanDeviceExtensions:
+vulkanEngineNames:
+
+appPackageName = naukriApp.appModules.login
+driverVersionCode = 0
+cpuVulkanInUse = 0
+falsePrerotation = 0
+gles1InUse = 0
+angleInUse = 0
+createdGlesContext = 1
+createdVulkanDevice = 0
+createdVulkanSwapchain = 0
+vulkanApiVersion = 0x404000
+vulkanDeviceFeaturesEnabled = 0x0
+glDriverLoadingTime: 100875692
+angleDriverLoadingTime:
+vkDriverLoadingTime: 17713846
+vulkanInstanceExtensions:
+vulkanDeviceExtensions:
+vulkanEngineNames: ,
+
+appPackageName = com.mi.android.globalFileexplorer
+driverVersionCode = 0
+cpuVulkanInUse = 0
+falsePrerotation = 0
+gles1InUse = 0
+angleInUse = 0
+createdGlesContext = 1
+createdVulkanDevice = 0
+createdVulkanSwapchain = 0
+vulkanApiVersion = 0x404000
+vulkanDeviceFeaturesEnabled = 0x0
+glDriverLoadingTime: 100875692
+angleDriverLoadingTime:
+vkDriverLoadingTime: 2646154
+vulkanInstanceExtensions:
+vulkanDeviceExtensions:
+vulkanEngineNames: ,
+
+appPackageName = com.amanoteam.flonne
+driverVersionCode = 0
+cpuVulkanInUse = 0
+falsePrerotation = 0
+gles1InUse = 0
+angleInUse = 0
+createdGlesContext = 0
+createdVulkanDevice = 0
+createdVulkanSwapchain = 0
+vulkanApiVersion = 0x0
+vulkanDeviceFeaturesEnabled = 0x0
+glDriverLoadingTime: 100875692
+angleDriverLoadingTime:
+vkDriverLoadingTime:
+vulkanInstanceExtensions:
+vulkanDeviceExtensions:
+vulkanEngineNames:
+
+appPackageName = com.google.android.permissioncontroller
+driverVersionCode = 0
+cpuVulkanInUse = 0
+falsePrerotation = 0
+gles1InUse = 0
+angleInUse = 0
+createdGlesContext = 0
+createdVulkanDevice = 0
+createdVulkanSwapchain = 0
+vulkanApiVersion = 0x0
+vulkanDeviceFeaturesEnabled = 0x0
+glDriverLoadingTime: 100875692
+angleDriverLoadingTime:
+vkDriverLoadingTime:
+vulkanInstanceExtensions:
+vulkanDeviceExtensions:
+vulkanEngineNames:
+
+appPackageName = com.instagram.android
+driverVersionCode = 0
+cpuVulkanInUse = 0
+falsePrerotation = 0
+gles1InUse = 0
+angleInUse = 0
+createdGlesContext = 1
+createdVulkanDevice = 0
+createdVulkanSwapchain = 0
+vulkanApiVersion = 0x400000
+vulkanDeviceFeaturesEnabled = 0x0
+glDriverLoadingTime: 100875692 100875692 100875692 100875692
+angleDriverLoadingTime:
+vkDriverLoadingTime: 34406462 48308692 47794847 13169231
+vulkanInstanceExtensions:
+vulkanDeviceExtensions:
+vulkanEngineNames: bloks_gpu_query, ,
+
+appPackageName = com.openai.chatgpt
+driverVersionCode = 0
+cpuVulkanInUse = 0
+falsePrerotation = 0
+gles1InUse = 0
+angleInUse = 0
+createdGlesContext = 1
+createdVulkanDevice = 0
+createdVulkanSwapchain = 0
+vulkanApiVersion = 0x404000
+vulkanDeviceFeaturesEnabled = 0x0
+glDriverLoadingTime: 100875692
+angleDriverLoadingTime:
+vkDriverLoadingTime: 22191693
+vulkanInstanceExtensions:
+vulkanDeviceExtensions:
+vulkanEngineNames: ,
+
+appPackageName = com.sannam.acumen
+driverVersionCode = 0
+cpuVulkanInUse = 0
+falsePrerotation = 0
+gles1InUse = 0
+angleInUse = 0
+createdGlesContext = 1
+createdVulkanDevice = 0
+createdVulkanSwapchain = 0
+vulkanApiVersion = 0x0
+vulkanDeviceFeaturesEnabled = 0x0
+glDriverLoadingTime: 100875692
+angleDriverLoadingTime:
+vkDriverLoadingTime:
+vulkanInstanceExtensions:
+vulkanDeviceExtensions:
+vulkanEngineNames:
+
+appPackageName = com.google.android.photopicker
+driverVersionCode = 0
+cpuVulkanInUse = 0
+falsePrerotation = 0
+gles1InUse = 0
+angleInUse = 0
+createdGlesContext = 0
+createdVulkanDevice = 0
+createdVulkanSwapchain = 0
+vulkanApiVersion = 0x0
+vulkanDeviceFeaturesEnabled = 0x0
+glDriverLoadingTime: 100875692
+angleDriverLoadingTime:
+vkDriverLoadingTime:
+vulkanInstanceExtensions:
+vulkanDeviceExtensions:
+vulkanEngineNames:
+
+appPackageName = com.google.android.documentsui
+driverVersionCode = 0
+cpuVulkanInUse = 0
+falsePrerotation = 0
+gles1InUse = 0
+angleInUse = 0
+createdGlesContext = 0
+createdVulkanDevice = 0
+createdVulkanSwapchain = 0
+vulkanApiVersion = 0x0
+vulkanDeviceFeaturesEnabled = 0x0
+glDriverLoadingTime: 100875692 100875692
+angleDriverLoadingTime:
+vkDriverLoadingTime:
+vulkanInstanceExtensions:
+vulkanDeviceExtensions:
+vulkanEngineNames:
+
+appPackageName = com.miui.screenshot
+driverVersionCode = 0
+cpuVulkanInUse = 0
+falsePrerotation = 0
+gles1InUse = 0
+angleInUse = 0
+createdGlesContext = 0
+createdVulkanDevice = 0
+createdVulkanSwapchain = 0
+vulkanApiVersion = 0x0
+vulkanDeviceFeaturesEnabled = 0x0
+glDriverLoadingTime: 100875692
+angleDriverLoadingTime:
+vkDriverLoadingTime:
+vulkanInstanceExtensions:
+vulkanDeviceExtensions:
+vulkanEngineNames:
+
+appPackageName = ai.x.grok
+driverVersionCode = 0
+cpuVulkanInUse = 0
+falsePrerotation = 0
+gles1InUse = 0
+angleInUse = 0
+createdGlesContext = 0
+createdVulkanDevice = 0
+createdVulkanSwapchain = 0
+vulkanApiVersion = 0x0
+vulkanDeviceFeaturesEnabled = 0x0
+glDriverLoadingTime: 100875692
+angleDriverLoadingTime:
+vkDriverLoadingTime:
+vulkanInstanceExtensions:
+vulkanDeviceExtensions:
+vulkanEngineNames:
+
+appPackageName = com.github.android
+driverVersionCode = 0
+cpuVulkanInUse = 0
+falsePrerotation = 0
+gles1InUse = 0
+angleInUse = 0
+createdGlesContext = 0
+createdVulkanDevice = 0
+createdVulkanSwapchain = 0
+vulkanApiVersion = 0x0
+vulkanDeviceFeaturesEnabled = 0x0
+glDriverLoadingTime: 100875692
+angleDriverLoadingTime:
+vkDriverLoadingTime:
+vulkanInstanceExtensions:
+vulkanDeviceExtensions:
+vulkanEngineNames:
+
+appPackageName = com.android.intentresolver
+driverVersionCode = 0
+cpuVulkanInUse = 0
+falsePrerotation = 0
+gles1InUse = 0
+angleInUse = 0
+createdGlesContext = 0
+createdVulkanDevice = 0
+createdVulkanSwapchain = 0
+vulkanApiVersion = 0x0
+vulkanDeviceFeaturesEnabled = 0x0
+glDriverLoadingTime: 100875692 100875692
+angleDriverLoadingTime:
+vkDriverLoadingTime:
+vulkanInstanceExtensions:
+vulkanDeviceExtensions:
+vulkanEngineNames:
+
+appPackageName = com.truecaller
+driverVersionCode = 0
+cpuVulkanInUse = 0
+falsePrerotation = 0
+gles1InUse = 0
+angleInUse = 0
+createdGlesContext = 0
+createdVulkanDevice = 0
+createdVulkanSwapchain = 0
+vulkanApiVersion = 0x0
+vulkanDeviceFeaturesEnabled = 0x0
+glDriverLoadingTime: 100875692
+angleDriverLoadingTime:
+vkDriverLoadingTime:
+vulkanInstanceExtensions:
+vulkanDeviceExtensions:
+vulkanEngineNames:
+
+appPackageName = com.instagram.barcelona
+driverVersionCode = 0
+cpuVulkanInUse = 0
+falsePrerotation = 0
+gles1InUse = 0
+angleInUse = 0
+createdGlesContext = 0
+createdVulkanDevice = 0
+createdVulkanSwapchain = 0
+vulkanApiVersion = 0x0
+vulkanDeviceFeaturesEnabled = 0x0
+glDriverLoadingTime: 100875692
+angleDriverLoadingTime:
+vkDriverLoadingTime: 29843308
+vulkanInstanceExtensions:
+vulkanDeviceExtensions:
+vulkanEngineNames:
+
+appPackageName = com.android.chrome
+driverVersionCode = 0
+cpuVulkanInUse = 0
+falsePrerotation = 0
+gles1InUse = 0
+angleInUse = 0
+createdGlesContext = 0
+createdVulkanDevice = 0
+createdVulkanSwapchain = 0
+vulkanApiVersion = 0x0
+vulkanDeviceFeaturesEnabled = 0x0
+glDriverLoadingTime: 100875692 100875692 100875692 100875692
+angleDriverLoadingTime:
+vkDriverLoadingTime:
+vulkanInstanceExtensions:
+vulkanDeviceExtensions:
+vulkanEngineNames:
+
+appPackageName = com.monsterindia.seeker.views
+driverVersionCode = 0
+cpuVulkanInUse = 0
+falsePrerotation = 0
+gles1InUse = 0
+angleInUse = 0
+createdGlesContext = 1
+createdVulkanDevice = 0
+createdVulkanSwapchain = 0
+vulkanApiVersion = 0x404000
+vulkanDeviceFeaturesEnabled = 0x0
+glDriverLoadingTime: 100875692 100875692
+angleDriverLoadingTime:
+vkDriverLoadingTime: 7483000 15855769
+vulkanInstanceExtensions: 0xf3a8bad9 0x3466e6d9 0xf076aac5
+vulkanDeviceExtensions:
+vulkanEngineNames: , Dawn,
+
+appPackageName = com.whatsapp
+driverVersionCode = 0
+cpuVulkanInUse = 0
+falsePrerotation = 0
+gles1InUse = 0
+angleInUse = 0
+createdGlesContext = 0
+createdVulkanDevice = 0
+createdVulkanSwapchain = 0
+vulkanApiVersion = 0x0
+vulkanDeviceFeaturesEnabled = 0x0
+glDriverLoadingTime: 100875692
+angleDriverLoadingTime:
+vkDriverLoadingTime:
+vulkanInstanceExtensions:
+vulkanDeviceExtensions:
+vulkanEngineNames:
+
+appPackageName = com.android.vending
+driverVersionCode = 0
+cpuVulkanInUse = 0
+falsePrerotation = 0
+gles1InUse = 0
+angleInUse = 0
+createdGlesContext = 0
+createdVulkanDevice = 0
+createdVulkanSwapchain = 0
+vulkanApiVersion = 0x0
+vulkanDeviceFeaturesEnabled = 0x0
+glDriverLoadingTime: 100875692 100875692 100875692
+angleDriverLoadingTime:
+vkDriverLoadingTime:
+vulkanInstanceExtensions:
+vulkanDeviceExtensions:
+vulkanEngineNames:
+
+appPackageName = app.morphe.android.youtube
+driverVersionCode = 0
+cpuVulkanInUse = 0
+falsePrerotation = 0
+gles1InUse = 0
+angleInUse = 0
+createdGlesContext = 1
+createdVulkanDevice = 0
+createdVulkanSwapchain = 0
+vulkanApiVersion = 0x0
+vulkanDeviceFeaturesEnabled = 0x0
+glDriverLoadingTime: 100875692 100875692
+angleDriverLoadingTime:
+vkDriverLoadingTime:
+vulkanInstanceExtensions:
+vulkanDeviceExtensions:
+vulkanEngineNames:
+
+appPackageName = com.google.android.apps.docs
+driverVersionCode = 0
+cpuVulkanInUse = 0
+falsePrerotation = 0
+gles1InUse = 0
+angleInUse = 0
+createdGlesContext = 0
+createdVulkanDevice = 0
+createdVulkanSwapchain = 0
+vulkanApiVersion = 0x0
+vulkanDeviceFeaturesEnabled = 0x0
+glDriverLoadingTime: 100875692
+angleDriverLoadingTime:
+vkDriverLoadingTime:
+vulkanInstanceExtensions:
+vulkanDeviceExtensions:
+vulkanEngineNames:
+
+
+GPU work information.
+gpu_id uid total_active_duration_ns total_inactive_duration_ns
+0 0 13808684 1394381691
+0 1000 653571686690 60976783159901
+0 10071 6959695408 573815543364
+0 10086 11062877303 230357913978
+0 10099 511543134 10782955206
+0 10100 4279809544 69279795706
+0 10131 141333018450 3848614935344
+0 10143 29589929 1668448355
+0 10150 106236965219 1728438851903
+0 10156 18024085732 233375808288
+0 10158 2924317166 130830881583
+0 10159 652998157 20473812462
+0 10167 229775647048 2000342660668
+[errors:54331]0 10172 1474952396435 17958318516002
+0 10175 91703818 4751249578
+0 10178 47345992888 2902942347120
+0 10183 1073512108 32131294965
+0 10185 6050601863 97044636608
+0 10187 12669318649 237904155230
+0 10208 84021 22974
+0 10232 8157209 1410316209
+0 10253 2126139527 31907508088
+0 10258 2808780 355642968
+0 10260 121640561 12884291871
+0 10275 42310323211 9425206894920
+0 10287 15180146 809614067
+0 10288 45787247 3653414241
+0 10295 17347042598 257959211858
+0 10310 181704290793 1239305699626
+0 10311 258170563274 2726397145450
+0 10318 189812311070 1552384252902
+0 10320 679289174 27185198142
+0 10321 30644623774 756753969064
+0 10325 170807665207 1027448101454
+0 10327 6533889685 99463724640
+0 10356 15537644574 446969724822
+0 10366 213780987562 2396522350664
+0 10404 29050285 3450765530
+0 10426 11684923943 90265960425
+0 10429 9515842327 36003194786
+0 10455 95332829 1371167523
+0 10462 2663103091 32940836563
+0 10513 170140889078 3367017515547
+0 10530 25758413905 382875517785
+0 10534 1713657850 73772258643
+0 10537 157220993209 1487969657484
+0 10553 38925016959 611014618496
+0 10566 10171974579 165596469662
+

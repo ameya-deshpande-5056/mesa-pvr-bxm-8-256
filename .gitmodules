@@ -1,0 +1,4 @@
+[submodule "research/mesa-src"]
+	path = research/mesa-src
+	url = https://gitlab.freedesktop.org/ameya-deshpande-5056/mesa.git
+	branch = bxm-ddk25-offline

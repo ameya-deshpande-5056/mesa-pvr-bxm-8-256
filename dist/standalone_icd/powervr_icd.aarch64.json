@@ -1,0 +1,8 @@
+{
+    "file_format_version": "1.0.1",
+    "ICD": {
+        "library_path": "libvulkan_powervr_mesa.so",
+        "api_version": "1.4.363",
+        "library_arch": "64"
+    }
+}

@@ -1,0 +1,1255 @@
+From 50714c48c34fc55325393fac947e217938837206 Mon Sep 17 00:00:00 2001
+From: Ameya Deshpande <adeshpande610@gmail.com>
+Date: Fri, 23 Oct 2026 19:45:22 +0530
+Subject: [PATCH 2/5] imagination: Wire DDK 25.1 bridge ABI and B-Series heap
+ fallback into pvrsrvkm winsys
+
+---
+ android-aarch64.ini                           |  16 +
+ meson.build                                   |  16 +-
+ src/imagination/vulkan/meson.build            |   1 +
+ .../vulkan/winsys/pvrsrvkm/pvr_srv.c          |  73 ++-
+ .../vulkan/winsys/pvrsrvkm/pvr_srv.h          |   4 +
+ .../vulkan/winsys/pvrsrvkm/pvr_srv_bridge.c   | 491 ++++++++++++++++++
+ .../vulkan/winsys/pvrsrvkm/pvr_srv_bridge.h   |   4 +
+ .../winsys/pvrsrvkm/pvr_srv_bridge_v25.h      | 343 ++++++++++++
+ 8 files changed, 918 insertions(+), 30 deletions(-)
+ create mode 100644 android-aarch64.ini
+ create mode 100644 src/imagination/vulkan/winsys/pvrsrvkm/pvr_srv_bridge_v25.h
+
+diff --git a/android-aarch64.ini b/android-aarch64.ini
+new file mode 100644
+index 000000000000..555293e57e90
+--- /dev/null
++++ b/android-aarch64.ini
+@@ -0,0 +1,16 @@
++[binaries]
++c = '/home/ameya/Android/Sdk/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android34-clang'
++cpp = '/home/ameya/Android/Sdk/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android34-clang++'
++ar = '/home/ameya/Android/Sdk/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar'
++strip = '/home/ameya/Android/Sdk/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip'
++pkg-config = 'pkg-config'
++mesa_clc = '/home/ameya/bxm-research/tools/native-bin/mesa_clc'
++vtn_bindgen2 = '/home/ameya/bxm-research/tools/native-bin/vtn_bindgen2'
++pco_clc = '/home/ameya/bxm-research/tools/native-bin/pco_clc'
++pdsc_precomp = '/home/ameya/bxm-research/tools/native-bin/pdsc_precomp'
++
++[host_machine]
++system = 'android'
++cpu_family = 'aarch64'
++cpu = 'armv8-a'
++endian = 'little'
+diff --git a/meson.build b/meson.build
+index b36ec9136885..219327f68ea6 100644
+--- a/meson.build
++++ b/meson.build
+@@ -1856,9 +1856,13 @@ else
+ endif
+ 
+ # IMPORTANT: We can't upgrade Zlib beyond 1.2.5 because it would break Viewperf.
+-dep_zlib = dependency('zlib', version : '>= 1.2.3',
+-                      allow_fallback: true,
+-                      required : get_option('zlib'))
++if host_machine.system() == 'android'
++  dep_zlib = cc.find_library('z', required : get_option('zlib'))
++else
++  dep_zlib = dependency('zlib', version : '>= 1.2.3',
++                        allow_fallback: true,
++                        required : get_option('zlib'))
++endif
+ if dep_zlib.found()
+   pre_args += '-DHAVE_ZLIB'
+ endif
+@@ -1953,7 +1957,11 @@ if host_machine.system() == 'windows'
+   endif
+ endif
+ 
+-dep_libudev = dependency('libudev', required : false)
++if host_machine.system() != 'android'
++  dep_libudev = dependency('libudev', required : false)
++else
++  dep_libudev = null_dep
++endif
+ if dep_libudev.found()
+   pre_args += '-DHAVE_LIBUDEV'
+ endif
+diff --git a/src/imagination/vulkan/meson.build b/src/imagination/vulkan/meson.build
+index 2c5cf4cb4dd1..8d66da71e8a1 100644
+--- a/src/imagination/vulkan/meson.build
++++ b/src/imagination/vulkan/meson.build
+@@ -161,6 +161,7 @@ foreach arch : ['rogue']
+       inc_src,
+     ],
+     dependencies : [
++      dep_libdrm,
+       dep_valgrind,
+       idep_nir_headers,
+       idep_pco_uscgen_programs_headers,
+diff --git a/src/imagination/vulkan/winsys/pvrsrvkm/pvr_srv.c b/src/imagination/vulkan/winsys/pvrsrvkm/pvr_srv.c
+index 341f07e05e89..2b74514ac433 100644
+--- a/src/imagination/vulkan/winsys/pvrsrvkm/pvr_srv.c
++++ b/src/imagination/vulkan/winsys/pvrsrvkm/pvr_srv.c
+@@ -175,6 +175,7 @@ static VkResult pvr_srv_heap_init(
+ 
+    /* Create server-side counterpart of Device Memory heap */
+    result = pvr_srv_int_heap_create(srv_ws->base.render_fd,
++                                    heap_idx,
+                                     srv_heap->base.base_addr,
+                                     srv_heap->base.size,
+                                     srv_heap->base.log2_page_size,
+@@ -287,8 +288,7 @@ static VkResult pvr_srv_memctx_init(struct pvr_srv_winsys *srv_ws)
+ 
+    /* Check for and initialise required heaps. */
+    if (general_heap_idx == -1 || pds_heap_idx == -1 ||
+-       transfer_3d_heap_idx == -1 || usc_heap_idx == -1 ||
+-       vis_test_heap_idx == -1) {
++       usc_heap_idx == -1 || vis_test_heap_idx == -1) {
+       result = vk_error(NULL, VK_ERROR_INITIALIZATION_FAILED);
+       goto err_pvr_srv_int_ctx_destroy;
+    }
+@@ -307,12 +307,18 @@ static VkResult pvr_srv_memctx_init(struct pvr_srv_winsys *srv_ws)
+    if (result != VK_SUCCESS)
+       goto err_pvr_srv_heap_finish_general;
+ 
+-   result = pvr_srv_heap_init(srv_ws,
+-                              &srv_ws->transfer_3d_heap,
+-                              transfer_3d_heap_idx,
+-                              &no_static_data_offsets);
+-   if (result != VK_SUCCESS)
+-      goto err_pvr_srv_heap_finish_pds;
++   if (transfer_3d_heap_idx != -1) {
++      result = pvr_srv_heap_init(srv_ws,
++                                 &srv_ws->transfer_3d_heap,
++                                 transfer_3d_heap_idx,
++                                 &no_static_data_offsets);
++      if (result != VK_SUCCESS)
++         goto err_pvr_srv_heap_finish_pds;
++
++      srv_ws->transfer_3d_heap_present = true;
++   } else {
++      srv_ws->transfer_3d_heap_present = false;
++   }
+ 
+    result = pvr_srv_heap_init(srv_ws,
+                               &srv_ws->usc_heap,
+@@ -379,7 +385,8 @@ err_pvr_srv_heap_finish_usc:
+    pvr_srv_heap_finish(srv_ws, &srv_ws->usc_heap);
+ 
+ err_pvr_srv_heap_finish_transfer_3d:
+-   pvr_srv_heap_finish(srv_ws, &srv_ws->transfer_3d_heap);
++   if (srv_ws->transfer_3d_heap_present)
++      pvr_srv_heap_finish(srv_ws, &srv_ws->transfer_3d_heap);
+ 
+ err_pvr_srv_heap_finish_pds:
+    pvr_srv_heap_finish(srv_ws, &srv_ws->pds_heap);
+@@ -416,10 +423,12 @@ static void pvr_srv_memctx_finish(struct pvr_srv_winsys *srv_ws)
+    if (!pvr_srv_heap_finish(srv_ws, &srv_ws->usc_heap))
+       vk_errorf(NULL, VK_ERROR_UNKNOWN, "USC heap in use, can not deinit");
+ 
+-   if (!pvr_srv_heap_finish(srv_ws, &srv_ws->transfer_3d_heap)) {
+-      vk_errorf(NULL,
+-                VK_ERROR_UNKNOWN,
+-                "Transfer 3D heap in use, can not deinit");
++   if (srv_ws->transfer_3d_heap_present) {
++      if (!pvr_srv_heap_finish(srv_ws, &srv_ws->transfer_3d_heap)) {
++         vk_errorf(NULL,
++                   VK_ERROR_UNKNOWN,
++                   "Transfer 3D heap in use, can not deinit");
++      }
+    }
+ 
+    if (!pvr_srv_heap_finish(srv_ws, &srv_ws->pds_heap))
+@@ -609,7 +618,8 @@ static void pvr_srv_winsys_get_heaps_info(struct pvr_winsys *ws,
+ 
+    heaps->general_heap = &srv_ws->general_heap.base;
+    heaps->pds_heap = &srv_ws->pds_heap.base;
+-   heaps->transfer_frag_heap = &srv_ws->transfer_3d_heap.base;
++   heaps->transfer_frag_heap = srv_ws->transfer_3d_heap_present ?
++      &srv_ws->transfer_3d_heap.base : &srv_ws->general_heap.base;
+    heaps->usc_heap = &srv_ws->usc_heap.base;
+    heaps->vis_test_heap = &srv_ws->vis_test_heap.base;
+ 
+@@ -681,7 +691,7 @@ PER_ARCH_FUNCS(rogue);
+ 
+ SRV_WINSYS(rogue);
+ 
+-static bool pvr_is_driver_compatible(int render_fd)
++static bool pvr_is_driver_compatible(int render_fd, uint32_t *major_out, uint32_t *minor_out)
+ {
+    drmVersionPtr version;
+ 
+@@ -691,22 +701,29 @@ static bool pvr_is_driver_compatible(int render_fd)
+ 
+    assert(strcmp(version->name, PVR_SRV_DRIVER_NAME) == 0);
+ 
+-   /* Only the 1.17 driver is supported for now. */
+-   if (version->version_major != PVR_SRV_VERSION_MAJ ||
+-       version->version_minor != PVR_SRV_VERSION_MIN) {
+-      vk_errorf(NULL,
+-                VK_ERROR_INCOMPATIBLE_DRIVER,
+-                "Unsupported downstream driver version (%u.%u)",
+-                version->version_major,
+-                version->version_minor);
++   /* Support both DDK 1.17 and DDK 25.1 downstream driver versions */
++   if ((version->version_major == PVR_SRV_VERSION_MAJ &&
++        version->version_minor == PVR_SRV_VERSION_MIN) ||
++       (version->version_major == 25 && version->version_minor == 1)) {
++      if (major_out)
++         *major_out = version->version_major;
++      if (minor_out)
++         *minor_out = version->version_minor;
++
++      pvr_srv_register_connection(render_fd, version->version_major, version->version_minor);
+       drmFreeVersion(version);
+ 
+-      return false;
++      return true;
+    }
+ 
++   vk_errorf(NULL,
++             VK_ERROR_INCOMPATIBLE_DRIVER,
++             "Unsupported downstream driver version (%u.%u)",
++             version->version_major,
++             version->version_minor);
+    drmFreeVersion(version);
+ 
+-   return true;
++   return false;
+ }
+ 
+ VkResult pvr_srv_winsys_create(const int render_fd,
+@@ -717,8 +734,9 @@ VkResult pvr_srv_winsys_create(const int render_fd,
+    struct pvr_srv_winsys *srv_ws;
+    VkResult result;
+    uint64_t bvnc;
++   uint32_t ddk_maj = 0, ddk_min = 0;
+ 
+-   if (!pvr_is_driver_compatible(render_fd))
++   if (!pvr_is_driver_compatible(render_fd, &ddk_maj, &ddk_min))
+       return VK_ERROR_INCOMPATIBLE_DRIVER;
+ 
+    result = pvr_srv_init_module(render_fd, PVR_SRVKM_MODULE_TYPE_SERVICES);
+@@ -736,6 +754,9 @@ VkResult pvr_srv_winsys_create(const int render_fd,
+       goto err_pvr_srv_connection_destroy;
+    }
+ 
++   srv_ws->ddk_version_major = ddk_maj;
++   srv_ws->ddk_version_minor = ddk_min;
++
+    int ret = pvr_device_info_init(&srv_ws->dev_info, bvnc);
+    if (ret) {
+       return vk_errorf(NULL,
+diff --git a/src/imagination/vulkan/winsys/pvrsrvkm/pvr_srv.h b/src/imagination/vulkan/winsys/pvrsrvkm/pvr_srv.h
+index f57aa39fb5ad..d1815a3788a3 100644
+--- a/src/imagination/vulkan/winsys/pvrsrvkm/pvr_srv.h
++++ b/src/imagination/vulkan/winsys/pvrsrvkm/pvr_srv.h
+@@ -89,6 +89,10 @@ struct pvr_srv_winsys {
+    bool rgn_hdr_heap_present;
+    struct pvr_srv_winsys_heap rgn_hdr_heap;
+ 
++   bool transfer_3d_heap_present;
++   uint32_t ddk_version_major;
++   uint32_t ddk_version_minor;
++
+    /* vma's for carveout memory regions */
+    struct pvr_winsys_vma *pds_vma;
+    struct pvr_winsys_vma *usc_vma;
+diff --git a/src/imagination/vulkan/winsys/pvrsrvkm/pvr_srv_bridge.c b/src/imagination/vulkan/winsys/pvrsrvkm/pvr_srv_bridge.c
+index 5dde6f5e5c4c..2c605fd1e455 100644
+--- a/src/imagination/vulkan/winsys/pvrsrvkm/pvr_srv_bridge.c
++++ b/src/imagination/vulkan/winsys/pvrsrvkm/pvr_srv_bridge.c
+@@ -33,10 +33,12 @@
+ #include "pvr_macros.h"
+ #include "pvr_srv.h"
+ #include "pvr_srv_bridge.h"
++#include "pvr_srv_bridge_v25.h"
+ #include "pvr_types.h"
+ #include "util/log.h"
+ #include "util/macros.h"
+ #include "vk_log.h"
++#include <pthread.h>
+ 
+ #define vk_bridge_err(vk_err, bridge_func, bridge_ret)  \
+    vk_errorf(NULL,                                      \
+@@ -46,6 +48,58 @@
+              (bridge_ret).error,                        \
+              strerror(errno))
+ 
++struct pvr_srv_connection {
++   int fd;
++   uint32_t ddk_major;
++   uint32_t ddk_minor;
++};
++
++#define MAX_PVR_SRV_CONNECTIONS 16
++static struct pvr_srv_connection s_connections[MAX_PVR_SRV_CONNECTIONS];
++static pthread_mutex_t s_conn_lock = PTHREAD_MUTEX_INITIALIZER;
++
++void pvr_srv_register_connection(int fd, uint32_t ddk_major, uint32_t ddk_minor)
++{
++   pthread_mutex_lock(&s_conn_lock);
++   for (int i = 0; i < MAX_PVR_SRV_CONNECTIONS; i++) {
++      if (s_connections[i].fd == fd || s_connections[i].fd == 0) {
++         s_connections[i].fd = fd;
++         s_connections[i].ddk_major = ddk_major;
++         s_connections[i].ddk_minor = ddk_minor;
++         break;
++      }
++   }
++   pthread_mutex_unlock(&s_conn_lock);
++}
++
++void pvr_srv_unregister_connection(int fd)
++{
++   pthread_mutex_lock(&s_conn_lock);
++   for (int i = 0; i < MAX_PVR_SRV_CONNECTIONS; i++) {
++      if (s_connections[i].fd == fd) {
++         s_connections[i].fd = 0;
++         s_connections[i].ddk_major = 0;
++         s_connections[i].ddk_minor = 0;
++         break;
++      }
++   }
++   pthread_mutex_unlock(&s_conn_lock);
++}
++
++static uint32_t pvr_srv_get_ddk_major(int fd)
++{
++   uint32_t major = 1;
++   pthread_mutex_lock(&s_conn_lock);
++   for (int i = 0; i < MAX_PVR_SRV_CONNECTIONS; i++) {
++      if (s_connections[i].fd == fd) {
++         major = s_connections[i].ddk_major;
++         break;
++      }
++   }
++   pthread_mutex_unlock(&s_conn_lock);
++   return major;
++}
++
+ static int pvr_srv_bridge_call(int fd,
+                                uint8_t bridge_id,
+                                uint32_t function_id,
+@@ -159,6 +213,36 @@ VkResult pvr_srv_sw_sync_timeline_increment(int sw_timeline_fd,
+ 
+ VkResult pvr_srv_connection_create(int fd, uint64_t *const bvnc_out)
+ {
++   if (pvr_srv_get_ddk_major(fd) == 25) {
++      struct pvr_srv_bridge_connect_in_v25 cmd_v25 = {
++         .ui32BuildOptions = 0x00020010,
++         .ui32DDKBuild = 6715691,
++         .ui32DDKVersion = (25U << 16) | 1U,
++         .ui32Flags = PVR_SRV_FLAGS_CLIENT_64BIT_COMPAT_V25,
++      };
++      struct pvr_srv_bridge_connect_out_v25 ret_v25 = {
++         .ui32Error = PVR_SRV_ERROR_BRIDGE_CALL_FAILED,
++      };
++
++      int result = pvr_srv_bridge_call(fd,
++                                       PVR_SRV_BRIDGE_SRVCORE_V25,
++                                       PVR_SRV_BRIDGE_SRVCORE_CONNECT_V25,
++                                       &cmd_v25,
++                                       sizeof(cmd_v25),
++                                       &ret_v25,
++                                       sizeof(ret_v25));
++      if (result || ret_v25.ui32Error != PVR_SRV_OK) {
++         return vk_errorf(NULL,
++                          VK_ERROR_INITIALIZATION_FAILED,
++                          "PVR_SRV_BRIDGE_SRVCORE_CONNECT (v25) failed, error=%u, errno=%s",
++                          ret_v25.ui32Error,
++                          strerror(errno));
++      }
++
++      *bvnc_out = ret_v25.ui64BVNC;
++      return VK_SUCCESS;
++   }
++
+    struct pvr_srv_bridge_connect_cmd cmd = {
+       .flags = PVR_SRV_FLAGS_CLIENT_64BIT_COMPAT,
+       .build_options = RGX_BUILD_OPTIONS,
+@@ -210,6 +294,8 @@ void pvr_srv_connection_destroy(int fd)
+    if (result || ret.error != PVR_SRV_OK) {
+       vk_bridge_err(VK_ERROR_UNKNOWN, "PVR_SRV_BRIDGE_SRVCORE_DISCONNECT", ret);
+    }
++
++   pvr_srv_unregister_connection(fd);
+ }
+ 
+ VkResult pvr_srv_get_multicore_info(int fd,
+@@ -342,6 +428,33 @@ pvr_srv_set_sync_primitive(int fd, void *handle, uint32_t index, uint32_t value)
+ 
+ VkResult pvr_srv_get_heap_count(int fd, uint32_t *const heap_count_out)
+ {
++   if (pvr_srv_get_ddk_major(fd) == 25) {
++      struct pvr_srv_bridge_heap_cfg_heap_count_in_v25 cmd_v25 = {
++         .ui32HeapConfigIndex = 0,
++      };
++      struct pvr_srv_bridge_heap_cfg_heap_count_out_v25 ret_v25 = {
++         .ui32Error = PVR_SRV_ERROR_BRIDGE_CALL_FAILED,
++      };
++
++      int result = pvr_srv_bridge_call(fd,
++                                       PVR_SRV_BRIDGE_MM_V25,
++                                       PVR_SRV_BRIDGE_MM_HEAPCFGHEAPCOUNT_V25,
++                                       &cmd_v25,
++                                       sizeof(cmd_v25),
++                                       &ret_v25,
++                                       sizeof(ret_v25));
++      if (result || ret_v25.ui32Error != PVR_SRV_OK) {
++         return vk_errorf(NULL,
++                          VK_ERROR_INITIALIZATION_FAILED,
++                          "HEAPCFGHEAPCOUNT (v25) failed, error=%u, errno=%s",
++                          ret_v25.ui32Error,
++                          strerror(errno));
++      }
++
++      *heap_count_out = ret_v25.ui32NumHeaps;
++      return VK_SUCCESS;
++   }
++
+    struct pvr_srv_heap_count_cmd cmd = {
+       .heap_config_index = 0,
+    };
+@@ -371,12 +484,42 @@ VkResult pvr_srv_get_heap_count(int fd, uint32_t *const heap_count_out)
+ }
+ 
+ VkResult pvr_srv_int_heap_create(int fd,
++                                 uint32_t heap_index,
+                                  pvr_dev_addr_t base_address,
+                                  uint64_t size,
+                                  uint32_t log2_page_size,
+                                  void *server_memctx,
+                                  void **const server_heap_out)
+ {
++   if (pvr_srv_get_ddk_major(fd) == 25) {
++      struct pvr_srv_bridge_devmem_int_heap_create_in_v25 cmd_v25 = {
++         .hServerMemCtx = server_memctx,
++         .ui32HeapConfigIndex = 0,
++         .ui32HeapIndex = heap_index,
++      };
++      struct pvr_srv_bridge_devmem_int_heap_create_out_v25 ret_v25 = {
++         .ui32Error = PVR_SRV_ERROR_BRIDGE_CALL_FAILED,
++      };
++
++      int result = pvr_srv_bridge_call(fd,
++                                       PVR_SRV_BRIDGE_MM_V25,
++                                       PVR_SRV_BRIDGE_MM_DEVMEMINTHEAPCREATE_V25,
++                                       &cmd_v25,
++                                       sizeof(cmd_v25),
++                                       &ret_v25,
++                                       sizeof(ret_v25));
++      if (result || ret_v25.ui32Error != PVR_SRV_OK) {
++         return vk_errorf(NULL,
++                          VK_ERROR_INITIALIZATION_FAILED,
++                          "DEVMEMINTHEAPCREATE (v25) failed, error=%u, errno=%s",
++                          ret_v25.ui32Error,
++                          strerror(errno));
++      }
++
++      *server_heap_out = ret_v25.hServerHeap;
++      return VK_SUCCESS;
++   }
++
+    struct pvr_srv_devmem_int_heap_create_cmd cmd = {
+       .server_memctx = server_memctx,
+       .base_addr = base_address,
+@@ -410,6 +553,31 @@ VkResult pvr_srv_int_heap_create(int fd,
+ 
+ void pvr_srv_int_heap_destroy(int fd, void *server_heap)
+ {
++   if (pvr_srv_get_ddk_major(fd) == 25) {
++      struct pvr_srv_bridge_devmem_int_heap_destroy_in_v25 cmd_v25 = {
++         .hServerHeap = server_heap,
++      };
++      struct pvr_srv_bridge_devmem_int_heap_destroy_out_v25 ret_v25 = {
++         .ui32Error = PVR_SRV_ERROR_BRIDGE_CALL_FAILED,
++      };
++
++      int result = pvr_srv_bridge_call(fd,
++                                       PVR_SRV_BRIDGE_MM_V25,
++                                       PVR_SRV_BRIDGE_MM_DEVMEMINTHEAPDESTROY_V25,
++                                       &cmd_v25,
++                                       sizeof(cmd_v25),
++                                       &ret_v25,
++                                       sizeof(ret_v25));
++      if (result || ret_v25.ui32Error != PVR_SRV_OK) {
++         vk_errorf(NULL,
++                   VK_ERROR_INITIALIZATION_FAILED,
++                   "DEVMEMINTHEAPDESTROY (v25) failed, error=%u, errno=%s",
++                   ret_v25.ui32Error,
++                   strerror(errno));
++      }
++      return;
++   }
++
+    struct pvr_srv_devmem_int_heap_destroy_cmd cmd = {
+       .server_heap = server_heap,
+    };
+@@ -447,6 +615,53 @@ VkResult pvr_srv_get_heap_details(int fd,
+                                   uint64_t *const reserved_size_out,
+                                   uint32_t *const log2_page_size_out)
+ {
++   if (pvr_srv_get_ddk_major(fd) == 25) {
++      struct pvr_srv_bridge_heap_cfg_heap_details_in_v25 cmd_v25 = {
++         .ui32HeapConfigIndex = 0,
++         .ui32HeapIndex = heap_index,
++         .ui32Log2DataPageSize = 0,
++         .ui32HeapNameBufSz = sizeof(((struct pvr_srv_bridge_heap_cfg_heap_details_out_v25 *)0)->szHeapName),
++         ._pad = 0,
++      };
++      struct pvr_srv_bridge_heap_cfg_heap_details_out_v25 ret_v25 = {
++         .ui32Error = PVR_SRV_ERROR_BRIDGE_CALL_FAILED,
++      };
++
++      int result = pvr_srv_bridge_call(fd,
++                                       PVR_SRV_BRIDGE_MM_V25,
++                                       PVR_SRV_BRIDGE_MM_HEAPCFGHEAPDETAILS_V25,
++                                       &cmd_v25,
++                                       sizeof(cmd_v25),
++                                       &ret_v25,
++                                       sizeof(ret_v25));
++      if (result || ret_v25.ui32Error != PVR_SRV_OK) {
++         return vk_errorf(NULL,
++                          VK_ERROR_INITIALIZATION_FAILED,
++                          "HEAPCFGHEAPDETAILS (v25) failed, error=%u, errno=%s",
++                          ret_v25.ui32Error,
++                          strerror(errno));
++      }
++
++      if (buffer_out && buffer_size > 0) {
++         strncpy(buffer_out, ret_v25.szHeapName, buffer_size - 1);
++         buffer_out[buffer_size - 1] = '\0';
++      }
++
++      if (base_address_out)
++         base_address_out->addr = ret_v25.ui64DevVAddrBase;
++
++      if (size_out)
++         *size_out = ret_v25.ui64HeapByteSize;
++
++      if (reserved_size_out)
++         *reserved_size_out = 0;
++
++      if (log2_page_size_out)
++         *log2_page_size_out = ret_v25.ui32Log2DataPageSize;
++
++      return VK_SUCCESS;
++   }
++
+    struct pvr_srv_heap_cfg_details_cmd cmd = {
+       .heap_config_index = 0,
+       .heap_index = heap_index,
+@@ -493,6 +708,31 @@ VkResult pvr_srv_get_heap_details(int fd,
+ 
+ void pvr_srv_int_ctx_destroy(int fd, void *server_memctx)
+ {
++   if (pvr_srv_get_ddk_major(fd) == 25) {
++      struct pvr_srv_bridge_devmem_int_ctx_destroy_in_v25 cmd_v25 = {
++         .hServerMemCtx = server_memctx,
++      };
++      struct pvr_srv_bridge_devmem_int_ctx_destroy_out_v25 ret_v25 = {
++         .ui32Error = PVR_SRV_ERROR_BRIDGE_CALL_FAILED,
++      };
++
++      int result = pvr_srv_bridge_call(fd,
++                                       PVR_SRV_BRIDGE_MM_V25,
++                                       PVR_SRV_BRIDGE_MM_DEVMEMINTCTXDESTROY_V25,
++                                       &cmd_v25,
++                                       sizeof(cmd_v25),
++                                       &ret_v25,
++                                       sizeof(ret_v25));
++      if (result || ret_v25.ui32Error != PVR_SRV_OK) {
++         vk_errorf(NULL,
++                   VK_ERROR_UNKNOWN,
++                   "DEVMEMINTCTXDESTROY (v25) failed, error=%u, errno=%s",
++                   ret_v25.ui32Error,
++                   strerror(errno));
++      }
++      return;
++   }
++
+    struct pvr_srv_devmem_int_ctx_destroy_cmd cmd = {
+       .server_memctx = server_memctx,
+    };
+@@ -521,6 +761,34 @@ VkResult pvr_srv_int_ctx_create(int fd,
+                                 void **const server_memctx_out,
+                                 void **const server_memctx_data_out)
+ {
++   if (pvr_srv_get_ddk_major(fd) == 25) {
++      struct pvr_srv_bridge_devmem_int_ctx_create_in_v25 cmd_v25 = {
++         .bKernelMemoryCtx = 0,
++      };
++      struct pvr_srv_bridge_devmem_int_ctx_create_out_v25 ret_v25 = {
++         .ui32Error = PVR_SRV_ERROR_BRIDGE_CALL_FAILED,
++      };
++
++      int result = pvr_srv_bridge_call(fd,
++                                       PVR_SRV_BRIDGE_MM_V25,
++                                       PVR_SRV_BRIDGE_MM_DEVMEMINTCTXCREATE_V25,
++                                       &cmd_v25,
++                                       sizeof(cmd_v25),
++                                       &ret_v25,
++                                       sizeof(ret_v25));
++      if (result || ret_v25.ui32Error != PVR_SRV_OK) {
++         return vk_errorf(NULL,
++                          VK_ERROR_INITIALIZATION_FAILED,
++                          "DEVMEMINTCTXCREATE (v25) failed, error=%u, errno=%s",
++                          ret_v25.ui32Error,
++                          strerror(errno));
++      }
++
++      *server_memctx_out = ret_v25.hServerMemCtx;
++      *server_memctx_data_out = ret_v25.hServerMemCtxData;
++      return VK_SUCCESS;
++   }
++
+    struct pvr_srv_devmem_int_ctx_create_cmd cmd = {
+       .kernel_memory_ctx = false,
+    };
+@@ -556,6 +824,35 @@ VkResult pvr_srv_int_reserve_addr(int fd,
+                                   uint64_t size,
+                                   void **const reservation_out)
+ {
++   if (pvr_srv_get_ddk_major(fd) == 25) {
++      struct pvr_srv_bridge_devmemx_int_reserve_range_in_v25 cmd_v25 = {
++         .ui64DevVAddr = addr.addr,
++         .ui64Size = size,
++         .hServerHeap = server_heap,
++      };
++      struct pvr_srv_bridge_devmemx_int_reserve_range_out_v25 ret_v25 = {
++         .ui32Error = PVR_SRV_ERROR_BRIDGE_CALL_FAILED,
++      };
++
++      int result = pvr_srv_bridge_call(fd,
++                                       PVR_SRV_BRIDGE_MM_V25,
++                                       PVR_SRV_BRIDGE_MM_DEVMEMXINTRESERVERANGE_V25,
++                                       &cmd_v25,
++                                       sizeof(cmd_v25),
++                                       &ret_v25,
++                                       sizeof(ret_v25));
++      if (result || ret_v25.ui32Error != PVR_SRV_OK) {
++         return vk_errorf(NULL,
++                          VK_ERROR_INITIALIZATION_FAILED,
++                          "DEVMEMXINTRESERVERANGE (v25) failed, error=%u, errno=%s",
++                          ret_v25.ui32Error,
++                          strerror(errno));
++      }
++
++      *reservation_out = ret_v25.hReservation;
++      return VK_SUCCESS;
++   }
++
+    struct pvr_srv_devmem_int_reserve_range_cmd cmd = {
+       .server_heap = server_heap,
+       .addr = addr,
+@@ -588,6 +885,31 @@ VkResult pvr_srv_int_reserve_addr(int fd,
+ 
+ void pvr_srv_int_unreserve_addr(int fd, void *reservation)
+ {
++   if (pvr_srv_get_ddk_major(fd) == 25) {
++      struct pvr_srv_bridge_devmemx_int_unreserve_range_in_v25 cmd_v25 = {
++         .hReservation = reservation,
++      };
++      struct pvr_srv_bridge_devmemx_int_unreserve_range_out_v25 ret_v25 = {
++         .ui32Error = PVR_SRV_ERROR_BRIDGE_CALL_FAILED,
++      };
++
++      int result = pvr_srv_bridge_call(fd,
++                                       PVR_SRV_BRIDGE_MM_V25,
++                                       PVR_SRV_BRIDGE_MM_DEVMEMXINTUNRESERVERANGE_V25,
++                                       &cmd_v25,
++                                       sizeof(cmd_v25),
++                                       &ret_v25,
++                                       sizeof(ret_v25));
++      if (result || ret_v25.ui32Error != PVR_SRV_OK) {
++         vk_errorf(NULL,
++                   VK_ERROR_INITIALIZATION_FAILED,
++                   "DEVMEMXINTUNRESERVERANGE (v25) failed, error=%u, errno=%s",
++                   ret_v25.ui32Error,
++                   strerror(errno));
++      }
++      return;
++   }
++
+    struct pvr_srv_bridge_in_devmem_int_unreserve_range_cmd cmd = {
+       .reservation = reservation,
+    };
+@@ -667,6 +989,31 @@ VkResult pvr_srv_alloc_pmr(int fd,
+ 
+ void pvr_srv_free_pmr(int fd, void *pmr)
+ {
++   if (pvr_srv_get_ddk_major(fd) == 25) {
++      struct pvr_srv_bridge_pmr_unref_pmr_in_v25 cmd_v25 = {
++         .hPMR = pmr,
++      };
++      struct pvr_srv_bridge_pmr_unref_pmr_out_v25 ret_v25 = {
++         .ui32Error = PVR_SRV_ERROR_BRIDGE_CALL_FAILED,
++      };
++
++      int result = pvr_srv_bridge_call(fd,
++                                       PVR_SRV_BRIDGE_MM_V25,
++                                       PVR_SRV_BRIDGE_MM_PMRUNREFPMR_V25,
++                                       &cmd_v25,
++                                       sizeof(cmd_v25),
++                                       &ret_v25,
++                                       sizeof(ret_v25));
++      if (result || ret_v25.ui32Error != PVR_SRV_OK) {
++         vk_errorf(NULL,
++                   VK_ERROR_UNKNOWN,
++                   "PMRUNREFPMR (v25) failed, error=%u, errno=%s",
++                   ret_v25.ui32Error,
++                   strerror(errno));
++      }
++      return;
++   }
++
+    struct pvr_srv_pmr_unref_unlock_pmr_cmd cmd = {
+       .pmr = pmr,
+    };
+@@ -699,6 +1046,37 @@ VkResult pvr_srv_int_map_pages(int fd,
+                                uint64_t flags,
+                                pvr_dev_addr_t addr)
+ {
++   if (pvr_srv_get_ddk_major(fd) == 25) {
++      struct pvr_srv_bridge_devmemx_int_map_pages_in_v25 cmd_v25 = {
++         .hPMR = pmr,
++         .hReservation = reservation,
++         .ui32PageCount = page_count,
++         .ui32PMRPageOffset = page_offset,
++         .ui32ReservationPageOffset = 0,
++         .ui64Flags = flags,
++      };
++      struct pvr_srv_bridge_devmemx_int_map_pages_out_v25 ret_v25 = {
++         .ui32Error = PVR_SRV_ERROR_BRIDGE_CALL_FAILED,
++      };
++
++      int result = pvr_srv_bridge_call(fd,
++                                       PVR_SRV_BRIDGE_MM_V25,
++                                       PVR_SRV_BRIDGE_MM_DEVMEMXINTMAPPAGES_V25,
++                                       &cmd_v25,
++                                       sizeof(cmd_v25),
++                                       &ret_v25,
++                                       sizeof(ret_v25));
++      if (result || ret_v25.ui32Error != PVR_SRV_OK) {
++         return vk_errorf(NULL,
++                          VK_ERROR_MEMORY_MAP_FAILED,
++                          "DEVMEMXINTMAPPAGES (v25) failed, error=%u, errno=%s",
++                          ret_v25.ui32Error,
++                          strerror(errno));
++      }
++
++      return VK_SUCCESS;
++   }
++
+    struct pvr_srv_devmem_int_map_pages_cmd cmd = {
+       .reservation = reservation,
+       .pmr = pmr,
+@@ -735,6 +1113,33 @@ void pvr_srv_int_unmap_pages(int fd,
+                              pvr_dev_addr_t dev_addr,
+                              uint32_t page_count)
+ {
++   if (pvr_srv_get_ddk_major(fd) == 25) {
++      struct pvr_srv_bridge_devmemx_int_unmap_pages_in_v25 cmd_v25 = {
++         .hReservation = reservation,
++         .ui32PageCount = page_count,
++         .ui32ReservationPageOffset = 0,
++      };
++      struct pvr_srv_bridge_devmemx_int_unmap_pages_out_v25 ret_v25 = {
++         .ui32Error = PVR_SRV_ERROR_BRIDGE_CALL_FAILED,
++      };
++
++      int result = pvr_srv_bridge_call(fd,
++                                       PVR_SRV_BRIDGE_MM_V25,
++                                       PVR_SRV_BRIDGE_MM_DEVMEMXINTUNMAPPAGES_V25,
++                                       &cmd_v25,
++                                       sizeof(cmd_v25),
++                                       &ret_v25,
++                                       sizeof(ret_v25));
++      if (result || ret_v25.ui32Error != PVR_SRV_OK) {
++         vk_errorf(NULL,
++                   VK_ERROR_UNKNOWN,
++                   "DEVMEMXINTUNMAPPAGES (v25) failed, error=%u, errno=%s",
++                   ret_v25.ui32Error,
++                   strerror(errno));
++      }
++      return;
++   }
++
+    struct pvr_srv_devmem_int_unmap_pages_cmd cmd = {
+       .reservation = reservation,
+       .dev_addr = dev_addr,
+@@ -867,6 +1272,34 @@ VkResult pvr_srv_physmem_import_dmabuf(int fd,
+ 
+ VkResult pvr_srv_physmem_export_dmabuf(int fd, void *pmr, int *const fd_out)
+ {
++   if (pvr_srv_get_ddk_major(fd) == 25) {
++      struct pvr_srv_bridge_physmem_export_dmabuf_in_v25 cmd_v25 = {
++         .hPMR = pmr,
++      };
++      struct pvr_srv_bridge_physmem_export_dmabuf_out_v25 ret_v25 = {
++         .ui32Error = PVR_SRV_ERROR_BRIDGE_CALL_FAILED,
++         .iFd = -1,
++      };
++
++      int result = pvr_srv_bridge_call(fd,
++                                       PVR_SRV_BRIDGE_DMABUF_V25,
++                                       PVR_SRV_BRIDGE_DMABUF_PHYSMEMEXPORTDMABUF_V25,
++                                       &cmd_v25,
++                                       sizeof(cmd_v25),
++                                       &ret_v25,
++                                       sizeof(ret_v25));
++      if (result || ret_v25.ui32Error != PVR_SRV_OK) {
++         return vk_errorf(NULL,
++                          VK_ERROR_OUT_OF_HOST_MEMORY,
++                          "PHYSMEMEXPORTDMABUF (v25) failed, error=%u, errno=%s",
++                          ret_v25.ui32Error,
++                          strerror(errno));
++      }
++
++      *fd_out = ret_v25.iFd;
++      return VK_SUCCESS;
++   }
++
+    struct pvr_srv_phys_mem_export_dmabuf_cmd cmd = {
+       .pmr = pmr,
+    };
+@@ -1060,6 +1493,39 @@ pvr_srv_rgx_create_compute_context(int fd,
+                                    uint32_t max_deadline_ms,
+                                    void **const compute_context_out)
+ {
++   if (pvr_srv_get_ddk_major(fd) == 25) {
++      struct pvr_srv_bridge_rgx_create_compute_context_in_v25 cmd_v25 = {
++         .ui32Priority = priority,
++         ._pad = 0,
++         .hServerMemCtxData = priv_data,
++      };
++      if (static_compute_context_state &&
++          static_compute_context_state_size <= sizeof(cmd_v25.static_state)) {
++         memcpy(cmd_v25.static_state, static_compute_context_state, static_compute_context_state_size);
++      }
++      struct pvr_srv_bridge_rgx_create_compute_context_out_v25 ret_v25 = {
++         .ui32Error = PVR_SRV_ERROR_BRIDGE_CALL_FAILED,
++      };
++
++      int result = pvr_srv_bridge_call(fd,
++                                       PVR_SRV_BRIDGE_RGXCMP_V25,
++                                       PVR_SRV_BRIDGE_RGXCMP_RGXCREATECOMPUTECONTEXT_V25,
++                                       &cmd_v25,
++                                       sizeof(cmd_v25),
++                                       &ret_v25,
++                                       sizeof(ret_v25));
++      if (result || ret_v25.ui32Error != PVR_SRV_OK) {
++         return vk_errorf(NULL,
++                          VK_ERROR_INITIALIZATION_FAILED,
++                          "RGXCREATECOMPUTECONTEXT (v25) failed, error=%u, errno=%s",
++                          ret_v25.ui32Error,
++                          strerror(errno));
++      }
++
++      *compute_context_out = ret_v25.hComputeContext;
++      return VK_SUCCESS;
++   }
++
+    struct pvr_srv_rgx_create_compute_context_cmd cmd = {
+       .priority = priority,
+       .reset_framework_cmd_size = reset_framework_cmd_size,
+@@ -1099,6 +1565,31 @@ pvr_srv_rgx_create_compute_context(int fd,
+ 
+ void pvr_srv_rgx_destroy_compute_context(int fd, void *compute_context)
+ {
++   if (pvr_srv_get_ddk_major(fd) == 25) {
++      struct pvr_srv_bridge_rgx_destroy_compute_context_in_v25 cmd_v25 = {
++         .hComputeContext = compute_context,
++      };
++      struct pvr_srv_bridge_rgx_destroy_compute_context_out_v25 ret_v25 = {
++         .ui32Error = PVR_SRV_ERROR_BRIDGE_CALL_FAILED,
++      };
++
++      int result = pvr_srv_bridge_call(fd,
++                                       PVR_SRV_BRIDGE_RGXCMP_V25,
++                                       PVR_SRV_BRIDGE_RGXCMP_RGXDESTROYCOMPUTECONTEXT_V25,
++                                       &cmd_v25,
++                                       sizeof(cmd_v25),
++                                       &ret_v25,
++                                       sizeof(ret_v25));
++      if (result || ret_v25.ui32Error != PVR_SRV_OK) {
++         vk_errorf(NULL,
++                   VK_ERROR_UNKNOWN,
++                   "RGXDESTROYCOMPUTECONTEXT (v25) failed, error=%u, errno=%s",
++                   ret_v25.ui32Error,
++                   strerror(errno));
++      }
++      return;
++   }
++
+    struct pvr_srv_rgx_destroy_compute_context_cmd cmd = {
+       .compute_context = compute_context,
+    };
+diff --git a/src/imagination/vulkan/winsys/pvrsrvkm/pvr_srv_bridge.h b/src/imagination/vulkan/winsys/pvrsrvkm/pvr_srv_bridge.h
+index 0f2b4c1f6187..d4c64f712333 100644
+--- a/src/imagination/vulkan/winsys/pvrsrvkm/pvr_srv_bridge.h
++++ b/src/imagination/vulkan/winsys/pvrsrvkm/pvr_srv_bridge.h
+@@ -915,7 +915,11 @@ VkResult pvr_srv_get_heap_details(int fd,
+                                   uint64_t *const reserved_size_out,
+                                   uint32_t *const log2_page_size_out);
+ 
++void pvr_srv_register_connection(int fd, uint32_t ddk_major, uint32_t ddk_minor);
++void pvr_srv_unregister_connection(int fd);
++
+ VkResult pvr_srv_int_heap_create(int fd,
++                                 uint32_t heap_index,
+                                  pvr_dev_addr_t base_address,
+                                  uint64_t size,
+                                  uint32_t log2_page_size,
+diff --git a/src/imagination/vulkan/winsys/pvrsrvkm/pvr_srv_bridge_v25.h b/src/imagination/vulkan/winsys/pvrsrvkm/pvr_srv_bridge_v25.h
+new file mode 100644
+index 000000000000..830a1380f809
+--- /dev/null
++++ b/src/imagination/vulkan/winsys/pvrsrvkm/pvr_srv_bridge_v25.h
+@@ -0,0 +1,343 @@
++/*
++ * Copyright © 2026 Imagination Technologies Ltd.
++ *
++ * SPDX-License-Identifier: MIT
++ *
++ * Verified DDK 25.1 bridge ABI definitions for PowerVR B-Series (BXM-8-256).
++ * Reverse-engineered from vendor pvrsrvkm.ko and libsrv_um.so.
++ */
++
++#ifndef PVR_SRV_BRIDGE_V25_H
++#define PVR_SRV_BRIDGE_V25_H
++
++#include <stddef.h>
++#include <stdint.h>
++#include <stdbool.h>
++
++/******************************************************************************
++ * DDK 25.1 Bridge Group IDs
++ ******************************************************************************/
++#define PVR_SRV_BRIDGE_SRVCORE_V25   1U
++#define PVR_SRV_BRIDGE_SYNC_V25      2U
++#define PVR_SRV_BRIDGE_MM_V25        6U
++#define PVR_SRV_BRIDGE_DMABUF_V25   11U
++#define PVR_SRV_BRIDGE_RGXCMP_V25  129U
++#define PVR_SRV_BRIDGE_RGXTA3D_V25 130U
++#define PVR_SRV_BRIDGE_RGXTQ2_V25  137U
++
++/******************************************************************************
++ * DDK 25.1 Bridge Function IDs
++ ******************************************************************************/
++/* Bridge 1: SRVCORE */
++#define PVR_SRV_BRIDGE_SRVCORE_CONNECT_V25    0U
++#define PVR_SRV_BRIDGE_SRVCORE_DISCONNECT_V25 1U
++
++/* Bridge 6: MM (DevMem) */
++#define PVR_SRV_BRIDGE_MM_PMRUNREFPMR_V25                 1U
++#define PVR_SRV_BRIDGE_MM_PHYSMEMNEWRAMBACKEDLOCKEDPMR_V25 8U
++#define PVR_SRV_BRIDGE_MM_DEVMEMINTCTXCREATE_V25          9U
++#define PVR_SRV_BRIDGE_MM_DEVMEMINTCTXDESTROY_V25         10U
++#define PVR_SRV_BRIDGE_MM_DEVMEMINTHEAPCREATE_V25         11U
++#define PVR_SRV_BRIDGE_MM_DEVMEMINTHEAPDESTROY_V25        12U
++#define PVR_SRV_BRIDGE_MM_HEAPCFGHEAPCONFIGCOUNT_V25      21U
++#define PVR_SRV_BRIDGE_MM_HEAPCFGHEAPCOUNT_V25            22U
++#define PVR_SRV_BRIDGE_MM_HEAPCFGHEAPDETAILS_V25          24U
++#define PVR_SRV_BRIDGE_MM_DEVMEMXINTRESERVERANGE_V25      30U
++#define PVR_SRV_BRIDGE_MM_DEVMEMXINTUNRESERVERANGE_V25    31U
++#define PVR_SRV_BRIDGE_MM_DEVMEMXINTMAPPAGES_V25          32U
++#define PVR_SRV_BRIDGE_MM_DEVMEMXINTUNMAPPAGES_V25        33U
++
++/* Bridge 11: DMABUF */
++#define PVR_SRV_BRIDGE_DMABUF_PHYSMEMEXPORTDMABUF_V25 1U
++
++/* Bridge 129: RGXCMP (Compute) */
++#define PVR_SRV_BRIDGE_RGXCMP_RGXCREATECOMPUTECONTEXT_V25 0U
++#define PVR_SRV_BRIDGE_RGXCMP_RGXDESTROYCOMPUTECONTEXT_V25 1U
++#define PVR_SRV_BRIDGE_RGXCMP_RGXKICKCDM_V25              8U
++
++/******************************************************************************
++ * DDK 25.1 Handle Types (Verified from bridge dispatch calls)
++ ******************************************************************************/
++enum pvr_srv_handle_type_v25 {
++   PVRSRV_HANDLE_TYPE_PMR_V25 = 4,
++   PVRSRV_HANDLE_TYPE_SERVER_MEMCTX_V25 = 7,
++   PVRSRV_HANDLE_TYPE_SERVER_HEAP_V25 = 9,
++   PVRSRV_HANDLE_TYPE_RESERVATION_V25 = 11,
++   PVRSRV_HANDLE_TYPE_COMPUTE_CONTEXT_V25 = 22,
++   PVRSRV_HANDLE_TYPE_SERVER_MEMCTX_DATA_V25 = 38,
++};
++
++/******************************************************************************
++ * DDK 25.1 Connection Flags
++ ******************************************************************************/
++#define PVR_SRV_FLAGS_CLIENT_64BIT_COMPAT_V25 (1U << 5) /* 0x20: Required to prevent kernel crash */
++
++/******************************************************************************
++ * Bridge 1 (SRVCORE) Structures
++ ******************************************************************************/
++struct pvr_srv_bridge_connect_in_v25 {
++   uint32_t ui32BuildOptions;
++   uint32_t ui32DDKBuild;
++   uint32_t ui32DDKVersion;
++   uint32_t ui32Flags;
++} __attribute__((packed));
++
++struct pvr_srv_bridge_connect_out_v25 {
++   uint64_t ui64BVNC;
++   uint32_t ui32Error;
++   uint32_t ui32CapabilityFlags;
++   uint8_t ui8KernelArch;
++} __attribute__((packed));
++
++struct pvr_srv_bridge_disconnect_out_v25 {
++   uint32_t ui32Error;
++} __attribute__((packed));
++
++/******************************************************************************
++ * Bridge 6 (MM) Structures
++ ******************************************************************************/
++struct pvr_srv_bridge_devmem_int_ctx_create_in_v25 {
++   uint8_t bKernelMemoryCtx;
++} __attribute__((packed));
++
++struct pvr_srv_bridge_devmem_int_ctx_create_out_v25 {
++   void *hServerMemCtx;        /* Handle Type 7 */
++   void *hServerMemCtxData;    /* Handle Type 38 */
++   uint32_t ui32Error;
++   uint32_t ui32CPUCacheLineSize;
++} __attribute__((packed));
++
++struct pvr_srv_bridge_devmem_int_ctx_destroy_in_v25 {
++   void *hServerMemCtx;        /* Handle Type 7 */
++} __attribute__((packed));
++
++struct pvr_srv_bridge_devmem_int_ctx_destroy_out_v25 {
++   uint32_t ui32Error;
++} __attribute__((packed));
++
++struct pvr_srv_bridge_devmem_int_heap_create_in_v25 {
++   void *hServerMemCtx;        /* Handle Type 7 */
++   uint32_t ui32HeapConfigIndex;
++   uint32_t ui32HeapIndex;
++} __attribute__((packed));
++
++struct pvr_srv_bridge_devmem_int_heap_create_out_v25 {
++   void *hServerHeap;          /* Handle Type 9 */
++   uint32_t ui32Error;
++} __attribute__((packed));
++
++struct pvr_srv_bridge_devmem_int_heap_destroy_in_v25 {
++   void *hServerHeap;          /* Handle Type 9 */
++} __attribute__((packed));
++
++struct pvr_srv_bridge_devmem_int_heap_destroy_out_v25 {
++   uint32_t ui32Error;
++} __attribute__((packed));
++
++struct pvr_srv_bridge_heap_cfg_heap_config_count_out_v25 {
++   uint32_t ui32NumHeapConfigs;
++   uint32_t ui32Error;
++} __attribute__((packed));
++
++struct pvr_srv_bridge_heap_cfg_heap_count_in_v25 {
++   uint32_t ui32HeapConfigIndex;
++} __attribute__((packed));
++
++struct pvr_srv_bridge_heap_cfg_heap_count_out_v25 {
++   uint32_t ui32NumHeaps;
++   uint32_t ui32Error;
++} __attribute__((packed));
++
++struct pvr_srv_bridge_heap_cfg_heap_details_in_v25 {
++   uint32_t ui32HeapConfigIndex;
++   uint32_t ui32HeapIndex;
++   uint32_t ui32Log2DataPageSize;
++   uint32_t ui32HeapNameBufSz;
++   uint32_t _pad;
++} __attribute__((packed));
++
++struct pvr_srv_bridge_heap_cfg_heap_details_out_v25 {
++   uint64_t ui64DevVAddrBase;
++   uint64_t ui64HeapByteSize;
++   uint32_t ui32Log2DataPageSize;
++   char szHeapName[20];
++   uint32_t ui32Error;
++} __attribute__((packed));
++
++struct pvr_srv_bridge_devmemx_int_reserve_range_in_v25 {
++   uint64_t ui64DevVAddr;
++   uint64_t ui64Size;
++   void *hServerHeap;          /* Handle Type 9 */
++} __attribute__((packed));
++
++struct pvr_srv_bridge_devmemx_int_reserve_range_out_v25 {
++   void *hReservation;         /* Handle Type 11 */
++   uint32_t ui32Error;
++} __attribute__((packed));
++
++struct pvr_srv_bridge_devmemx_int_unreserve_range_in_v25 {
++   void *hReservation;         /* Handle Type 11 */
++} __attribute__((packed));
++
++struct pvr_srv_bridge_devmemx_int_unreserve_range_out_v25 {
++   uint32_t ui32Error;
++} __attribute__((packed));
++
++struct pvr_srv_bridge_devmemx_int_map_pages_in_v25 {
++   void *hPMR;                 /* Handle Type 4 */
++   void *hReservation;         /* Handle Type 11 */
++   uint32_t ui32PageCount;
++   uint32_t ui32PMRPageOffset;
++   uint32_t ui32ReservationPageOffset;
++   uint64_t ui64Flags;
++} __attribute__((packed));
++
++struct pvr_srv_bridge_devmemx_int_map_pages_out_v25 {
++   uint32_t ui32Error;
++} __attribute__((packed));
++
++struct pvr_srv_bridge_devmemx_int_unmap_pages_in_v25 {
++   void *hReservation;         /* Handle Type 11 */
++   uint32_t ui32PageCount;
++   uint32_t ui32ReservationPageOffset;
++} __attribute__((packed));
++
++struct pvr_srv_bridge_devmemx_int_unmap_pages_out_v25 {
++   uint32_t ui32Error;
++} __attribute__((packed));
++
++struct pvr_srv_bridge_pmr_unref_pmr_in_v25 {
++   void *hPMR;                 /* Handle Type 4 */
++} __attribute__((packed));
++
++struct pvr_srv_bridge_pmr_unref_pmr_out_v25 {
++   uint32_t ui32Error;
++} __attribute__((packed));
++
++/******************************************************************************
++ * Bridge 11 (DMABUF) Structures
++ ******************************************************************************/
++struct pvr_srv_bridge_physmem_export_dmabuf_in_v25 {
++   void *hPMR;                 /* Handle Type 4 */
++} __attribute__((packed));
++
++struct pvr_srv_bridge_physmem_export_dmabuf_out_v25 {
++   uint32_t ui32Error;
++   int32_t iFd;
++} __attribute__((packed));
++
++/******************************************************************************
++ * Bridge 129 (RGXCMP) Structures
++ ******************************************************************************/
++struct pvr_srv_bridge_rgx_create_compute_context_in_v25 {
++   uint32_t ui32Priority;
++   uint32_t _pad;
++   void *hServerMemCtxData;    /* Handle Type 38 */
++   uint8_t static_state[40];
++} __attribute__((packed));
++
++struct pvr_srv_bridge_rgx_create_compute_context_out_v25 {
++   void *hComputeContext;      /* Handle Type 22 */
++   uint32_t ui32Error;
++} __attribute__((packed));
++
++struct pvr_srv_bridge_rgx_destroy_compute_context_in_v25 {
++   void *hComputeContext;      /* Handle Type 22 */
++} __attribute__((packed));
++
++struct pvr_srv_bridge_rgx_destroy_compute_context_out_v25 {
++   uint32_t ui32Error;
++} __attribute__((packed));
++
++struct pvr_srv_bridge_rgx_kick_cdm_in_v25 {
++   uint8_t kick_data[112];
++} __attribute__((packed));
++
++struct pvr_srv_bridge_rgx_kick_cdm_out_v25 {
++   uint32_t ui32Error;
++   uint8_t out_data[8];
++} __attribute__((packed));
++
++/******************************************************************************
++ * C11 Static Assertions: Verify Structure Sizes and Field Offsets
++ * (These MUST match pvrsrvkm.ko dispatch registration tables exactly)
++ ******************************************************************************/
++_Static_assert(sizeof(struct pvr_srv_bridge_connect_in_v25) == 16, "connect_in size mismatch");
++_Static_assert(sizeof(struct pvr_srv_bridge_connect_out_v25) == 17, "connect_out size mismatch");
++_Static_assert(offsetof(struct pvr_srv_bridge_connect_in_v25, ui32Flags) == 12, "connect_in flags offset");
++_Static_assert(offsetof(struct pvr_srv_bridge_connect_out_v25, ui64BVNC) == 0, "connect_out BVNC offset");
++_Static_assert(offsetof(struct pvr_srv_bridge_connect_out_v25, ui32Error) == 8, "connect_out error offset");
++
++_Static_assert(sizeof(struct pvr_srv_bridge_disconnect_out_v25) == 4, "disconnect_out size mismatch");
++
++_Static_assert(sizeof(struct pvr_srv_bridge_devmem_int_ctx_create_in_v25) == 1, "ctx_create_in size mismatch");
++_Static_assert(sizeof(struct pvr_srv_bridge_devmem_int_ctx_create_out_v25) == 24, "ctx_create_out size mismatch");
++_Static_assert(offsetof(struct pvr_srv_bridge_devmem_int_ctx_create_out_v25, hServerMemCtx) == 0, "ctx_create_out memctx offset");
++_Static_assert(offsetof(struct pvr_srv_bridge_devmem_int_ctx_create_out_v25, hServerMemCtxData) == 8, "ctx_create_out memctxdata offset");
++_Static_assert(offsetof(struct pvr_srv_bridge_devmem_int_ctx_create_out_v25, ui32Error) == 16, "ctx_create_out error offset");
++_Static_assert(offsetof(struct pvr_srv_bridge_devmem_int_ctx_create_out_v25, ui32CPUCacheLineSize) == 20, "ctx_create_out cacheline offset");
++
++_Static_assert(sizeof(struct pvr_srv_bridge_devmem_int_ctx_destroy_in_v25) == 8, "ctx_destroy_in size mismatch");
++_Static_assert(sizeof(struct pvr_srv_bridge_devmem_int_ctx_destroy_out_v25) == 4, "ctx_destroy_out size mismatch");
++
++_Static_assert(sizeof(struct pvr_srv_bridge_devmem_int_heap_create_in_v25) == 16, "heap_create_in size mismatch");
++_Static_assert(sizeof(struct pvr_srv_bridge_devmem_int_heap_create_out_v25) == 12, "heap_create_out size mismatch");
++_Static_assert(offsetof(struct pvr_srv_bridge_devmem_int_heap_create_in_v25, hServerMemCtx) == 0, "heap_create_in memctx offset");
++_Static_assert(offsetof(struct pvr_srv_bridge_devmem_int_heap_create_out_v25, hServerHeap) == 0, "heap_create_out heap offset");
++_Static_assert(offsetof(struct pvr_srv_bridge_devmem_int_heap_create_out_v25, ui32Error) == 8, "heap_create_out error offset");
++
++_Static_assert(sizeof(struct pvr_srv_bridge_devmem_int_heap_destroy_in_v25) == 8, "heap_destroy_in size mismatch");
++_Static_assert(sizeof(struct pvr_srv_bridge_devmem_int_heap_destroy_out_v25) == 4, "heap_destroy_out size mismatch");
++
++_Static_assert(sizeof(struct pvr_srv_bridge_heap_cfg_heap_config_count_out_v25) == 8, "heap_cfg_count_out size mismatch");
++
++_Static_assert(sizeof(struct pvr_srv_bridge_heap_cfg_heap_count_in_v25) == 4, "heap_count_in size mismatch");
++_Static_assert(sizeof(struct pvr_srv_bridge_heap_cfg_heap_count_out_v25) == 8, "heap_count_out size mismatch");
++
++_Static_assert(sizeof(struct pvr_srv_bridge_heap_cfg_heap_details_in_v25) == 20, "heap_details_in size mismatch");
++_Static_assert(sizeof(struct pvr_srv_bridge_heap_cfg_heap_details_out_v25) == 44, "heap_details_out size mismatch");
++_Static_assert(offsetof(struct pvr_srv_bridge_heap_cfg_heap_details_out_v25, ui64DevVAddrBase) == 0, "heap_details_out base offset");
++_Static_assert(offsetof(struct pvr_srv_bridge_heap_cfg_heap_details_out_v25, ui64HeapByteSize) == 8, "heap_details_out size offset");
++_Static_assert(offsetof(struct pvr_srv_bridge_heap_cfg_heap_details_out_v25, szHeapName) == 20, "heap_details_out name offset");
++_Static_assert(offsetof(struct pvr_srv_bridge_heap_cfg_heap_details_out_v25, ui32Error) == 40, "heap_details_out error offset");
++
++_Static_assert(sizeof(struct pvr_srv_bridge_devmemx_int_reserve_range_in_v25) == 24, "reserve_range_in size mismatch");
++_Static_assert(sizeof(struct pvr_srv_bridge_devmemx_int_reserve_range_out_v25) == 12, "reserve_range_out size mismatch");
++_Static_assert(offsetof(struct pvr_srv_bridge_devmemx_int_reserve_range_in_v25, hServerHeap) == 16, "reserve_range_in heap offset");
++_Static_assert(offsetof(struct pvr_srv_bridge_devmemx_int_reserve_range_out_v25, hReservation) == 0, "reserve_range_out res offset");
++_Static_assert(offsetof(struct pvr_srv_bridge_devmemx_int_reserve_range_out_v25, ui32Error) == 8, "reserve_range_out error offset");
++
++_Static_assert(sizeof(struct pvr_srv_bridge_devmemx_int_unreserve_range_in_v25) == 8, "unreserve_range_in size mismatch");
++_Static_assert(sizeof(struct pvr_srv_bridge_devmemx_int_unreserve_range_out_v25) == 4, "unreserve_range_out size mismatch");
++
++_Static_assert(sizeof(struct pvr_srv_bridge_devmemx_int_map_pages_in_v25) == 36, "map_pages_in size mismatch");
++_Static_assert(sizeof(struct pvr_srv_bridge_devmemx_int_map_pages_out_v25) == 4, "map_pages_out size mismatch");
++_Static_assert(offsetof(struct pvr_srv_bridge_devmemx_int_map_pages_in_v25, hPMR) == 0, "map_pages_in pmr offset");
++_Static_assert(offsetof(struct pvr_srv_bridge_devmemx_int_map_pages_in_v25, hReservation) == 8, "map_pages_in res offset");
++_Static_assert(offsetof(struct pvr_srv_bridge_devmemx_int_map_pages_in_v25, ui32PageCount) == 16, "map_pages_in count offset");
++_Static_assert(offsetof(struct pvr_srv_bridge_devmemx_int_map_pages_in_v25, ui64Flags) == 28, "map_pages_in flags offset");
++
++_Static_assert(sizeof(struct pvr_srv_bridge_devmemx_int_unmap_pages_in_v25) == 16, "unmap_pages_in size mismatch");
++_Static_assert(sizeof(struct pvr_srv_bridge_devmemx_int_unmap_pages_out_v25) == 4, "unmap_pages_out size mismatch");
++
++_Static_assert(sizeof(struct pvr_srv_bridge_pmr_unref_pmr_in_v25) == 8, "unref_pmr_in size mismatch");
++_Static_assert(sizeof(struct pvr_srv_bridge_pmr_unref_pmr_out_v25) == 4, "unref_pmr_out size mismatch");
++
++_Static_assert(sizeof(struct pvr_srv_bridge_physmem_export_dmabuf_in_v25) == 8, "export_dmabuf_in size mismatch");
++_Static_assert(sizeof(struct pvr_srv_bridge_physmem_export_dmabuf_out_v25) == 8, "export_dmabuf_out size mismatch");
++_Static_assert(offsetof(struct pvr_srv_bridge_physmem_export_dmabuf_out_v25, ui32Error) == 0, "export_dmabuf_out error offset");
++_Static_assert(offsetof(struct pvr_srv_bridge_physmem_export_dmabuf_out_v25, iFd) == 4, "export_dmabuf_out fd offset");
++
++_Static_assert(sizeof(struct pvr_srv_bridge_rgx_create_compute_context_in_v25) == 56, "create_compute_in size mismatch");
++_Static_assert(sizeof(struct pvr_srv_bridge_rgx_create_compute_context_out_v25) == 12, "create_compute_out size mismatch");
++_Static_assert(offsetof(struct pvr_srv_bridge_rgx_create_compute_context_in_v25, hServerMemCtxData) == 8, "create_compute_in memctxdata offset");
++_Static_assert(offsetof(struct pvr_srv_bridge_rgx_create_compute_context_out_v25, hComputeContext) == 0, "create_compute_out ctx offset");
++_Static_assert(offsetof(struct pvr_srv_bridge_rgx_create_compute_context_out_v25, ui32Error) == 8, "create_compute_out error offset");
++
++_Static_assert(sizeof(struct pvr_srv_bridge_rgx_destroy_compute_context_in_v25) == 8, "destroy_compute_in size mismatch");
++_Static_assert(sizeof(struct pvr_srv_bridge_rgx_destroy_compute_context_out_v25) == 4, "destroy_compute_out size mismatch");
++
++_Static_assert(sizeof(struct pvr_srv_bridge_rgx_kick_cdm_in_v25) == 112, "kick_cdm_in size mismatch");
++_Static_assert(sizeof(struct pvr_srv_bridge_rgx_kick_cdm_out_v25) == 12, "kick_cdm_out size mismatch");
++
++#endif /* PVR_SRV_BRIDGE_V25_H */
+-- 
+2.43.0
+

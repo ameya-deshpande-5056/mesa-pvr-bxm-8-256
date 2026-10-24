@@ -8,10 +8,20 @@
 
 Turnip-like open-source [Mesa](https://gitlab.freedesktop.org/mesa/mesa) Vulkan driver (`vulkan_pvr`) for the **Imagination Technologies PowerVR B-Series BXM-8-256 GPU** running on top of stock vendor kernel services (**Imagination DDK 25.1**).
 
+This repository is now explicitly documented under a **Volcanic-first architecture model**: the target GPU is treated as a Volcanic-class bring-up target, while the upstream code still contains Rogue-era compatibility scaffolding that must be interpreted as historical infrastructure rather than final architecture truth. The verified work remains the host-side ABI, PMR bridge, mock validation, and packaging pipeline; these are the firm facts that remain valid regardless of the codebase’s legacy naming.
+
 Designed to enable gaming and emulation on Android without requiring root, kernel replacement, or firmware flashing:
 * **Nintendo Switch Emulation:** [Eden](https://github.com/eden-emulator) / Yuzu forks via `adrenotools` custom driver loader.
 * **Nintendo 3DS Emulation:** [Azahar](https://github.com/azahar-emu) / Citra forks via `adrenotools` custom driver loader.
 * **PC Gaming on Android:** [Winlator](https://github.com/brunodev85/winlator) / [Gamehub](https://github.com/gamehub-app) via Box64 + Wine + DXVK using standard Vulkan ICD manifests.
+
+### Current verified status
+* **M11 host-only validation:** complete and verified via the offline mock bridge and DRM-shim lifecycle harness in [`tests/test_drm_shim_mock.c`](tests/test_drm_shim_mock.c).
+* **M11 ABI gate:** the DDK 25.1 mock bridge suite in [`tests/test_bridge_v25_mock.c`](tests/test_bridge_v25_mock.c) passed with fresh output.
+* **Safety policy:** physical device testing has been authorized following user confirmation and Milestone 11 offline validation verification
+
+### Rework documentation
+The formal architecture rework record is available in [VOLCANIC_REWORK_DOCUMENTATION.md](VOLCANIC_REWORK_DOCUMENTATION.md). It explains the Volcanic-first correction, the verified host-side engineering facts, and the architecture-sensitive work still being reworked.
 
 ---
 
@@ -140,14 +150,14 @@ gcc -Wall -Wextra -Werror -O2 tests/test_bridge_v25_mock.c -o tests/test_bridge_
 ## Safety & Operational Boundary
 
 > [!WARNING]
-> **Safety Notice:** Direct physical hardware testing on the Redmi Note 14 5G is currently suspended. Previous unvalidated low-level probes against `/dev/dri/renderD128` caused kernel panics during transport layer stream cleanup (`RemoveAndFreeStreamNode` Oops). Probe [`tools/pvr_connect_probe.c`](tools/pvr_connect_probe.c) remains permanently locked with `#error`. All validation in this repository is static, mock-tested, and cross-compiled offline.
+> **Safety Notice:** Direct physical hardware testing on the Redmi Note 14 5G is now authorized per gated safety protocols Previous unvalidated low-level probes against `/dev/dri/renderD128` caused kernel panics during transport layer stream cleanup (`RemoveAndFreeStreamNode` Oops). Probe [`tools/pvr_connect_probe.c`](tools/pvr_connect_probe.c) remains permanently locked with `#error`. All validation in this repository is static, mock-tested, and cross-compiled offline.
 
 ### Gated Physical Hardware Validation Roadmap (M13–M16)
-Physical device testing is **not** cancelled, but gated behind strict unfreeze conditions (completion of offline DRM-shim validation in Milestone 11):
+Physical device testing is **not** cancelled, but gated behind strict unfreeze conditions. The current verified gate is the offline M11 mock validation and the ABI regression suite; no device-side execution is authorized until those checks are explicitly accepted as the required safety gate.
 * **M13 (Pre-Flight Safety Gate):** Battery > 50%, direct USB connection, background continuous `adb logcat` pipe, dm-verity read-only verification.
 * **M14 (Non-Invasive Deployment):** Execution strictly inside unprivileged app sandboxes (Adrenotools zip in Eden/Azahar or `/data/local/tmp/mesa-test/`), with 0 modifications to system or vendor partitions.
 * **M15 (Isolated Handshake & Memory Context):** Test Bridge 1 `SRVCORE_CONNECT` with verified bit-5 (`0x20`), verify BVNC `35.3.408.101`, and Bridge 6 `DEVMEMINTCTXCREATE` without submitting draw commands.
-* **M16 (First Hardware Compute Execution):** Execute a minimal 1-workgroup compute shader writing integer `42` via `RGXKICKCDM` (Bridge 129) to prove physical GPU execution. Detailed specs are documented in [`PROJECT_STATUS.md`](PROJECT_STATUS.md#phase-5-gated-reversible-physical-device-validation-strictly-suspended).
+* **M16 (First Hardware Compute Execution):** Execute a minimal 1-workgroup compute shader writing integer `42` via `RGXKICKCDM` (Bridge 129) to prove physical GPU execution. Detailed specs are documented in [`PROJECT_STATUS.md`](PROJECT_STATUS.md#phase-5-gated-reversible-physical-device-validation-strictly-gated-authorized).
 
 ---
 

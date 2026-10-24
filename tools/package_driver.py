@@ -31,8 +31,21 @@ ALLOWED_SYSTEM_LIBS = {
     "liblog.so",
     "libhardware.so",
     "libnativewindow.so",
-    "libsync.so"
+    "libsync.so",
+    "libc++_shared.so"
 }
+
+def find_ndk_libcxx():
+    ndk = os.environ.get("ANDROID_NDK_ROOT") or os.environ.get("ANDROID_NDK_HOME")
+    if not ndk:
+        return None
+    candidate = os.path.join(ndk, "toolchains", "llvm", "prebuilt", "linux-x86_64", "sysroot", "usr", "lib", "aarch64-linux-android", "libc++_shared.so")
+    if os.path.isfile(candidate):
+        return candidate
+    for root, _, files in os.walk(ndk):
+        if "libc++_shared.so" in files and "aarch64" in root:
+            return os.path.join(root, "libc++_shared.so")
+    return None
 
 def check_binary():
     if not os.path.isfile(DRIVER_SO):
@@ -79,8 +92,13 @@ def check_binary():
             print(f"  [FAIL] Disallowed or non-system dependency: {lib}")
             sys.exit(1)
 
-def build_packages():
+    return needed
+
+def build_packages(needed):
     os.makedirs(DIST_DIR, exist_ok=True)
+    libcxx_path = find_ndk_libcxx() if "libc++_shared.so" in needed else None
+    if libcxx_path:
+        print(f"[+] Bundling companion C++ runtime from NDK: {libcxx_path}")
 
     # 1. Adrenotools Package (Flat zip with meta.json and .so)
     meta = {
@@ -99,6 +117,8 @@ def build_packages():
     with zipfile.ZipFile(adrenotools_zip_path, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("meta.json", json.dumps(meta, indent=2))
         z.write(DRIVER_SO, arcname="libvulkan_powervr_mesa.so")
+        if libcxx_path:
+            z.write(libcxx_path, arcname="libc++_shared.so")
 
     print(f"[+] Created Adrenotools package: {adrenotools_zip_path} ({os.path.getsize(adrenotools_zip_path):,} bytes)")
 
@@ -119,15 +139,19 @@ def build_packages():
         json.dump(icd_manifest, f, indent=4)
         f.write("\n")
     shutil.copy2(DRIVER_SO, os.path.join(icd_dir, "libvulkan_powervr_mesa.so"))
+    if libcxx_path:
+        shutil.copy2(libcxx_path, os.path.join(icd_dir, "libc++_shared.so"))
 
     icd_zip_path = os.path.join(DIST_DIR, "vulkan_pvr_bxm8256_icd.zip")
     with zipfile.ZipFile(icd_zip_path, "w", zipfile.ZIP_DEFLATED) as z:
         z.write(manifest_path, arcname="powervr_icd.aarch64.json")
         z.write(DRIVER_SO, arcname="libvulkan_powervr_mesa.so")
+        if libcxx_path:
+            z.write(libcxx_path, arcname="libc++_shared.so")
 
     print(f"[+] Created Standalone ICD package: {icd_zip_path} ({os.path.getsize(icd_zip_path):,} bytes)")
     print(f"[+] ICD manifest created at: {manifest_path}")
 
 if __name__ == "__main__":
-    check_binary()
-    build_packages()
+    needed = check_binary()
+    build_packages(needed)

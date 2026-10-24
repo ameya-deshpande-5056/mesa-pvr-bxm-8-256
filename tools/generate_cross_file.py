@@ -36,6 +36,10 @@ vtn_bindgen2 = '{os.path.join(native_bin, "vtn_bindgen2")}'
 pco_clc = '{os.path.join(native_bin, "pco_clc")}'
 pdsc_precomp = '{os.path.join(native_bin, "pdsc_precomp")}'
 
+[built-in options]
+c_link_args = ['-static-libstdc++']
+cpp_link_args = ['-static-libstdc++']
+
 [host_machine]
 system = 'android'
 cpu_family = 'aarch64'

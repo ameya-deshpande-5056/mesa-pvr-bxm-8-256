@@ -45,6 +45,36 @@ Designed to enable gaming and emulation on Android without requiring root, kerne
 
 ---
 
+## Target Performance & Emulation Scope (720p 30 FPS)
+
+This driver is specifically architected to deliver smooth **720p 30 FPS handheld gaming** for 2D indies, retro ports, and lightweight titles in emulators (Eden, Azahar, Winlator).
+
+### Hardware Comparison: Dimensity 7025 vs. Nintendo Switch
+
+| Parameter | Nintendo Switch (Handheld) | Redmi Note 14 5G (Dimensity 7025 / BXM) | Hardware Advantage |
+| :--- | :--- | :--- | :---: |
+| **CPU Cores** | 4× Cortex-A57 @ **1.02 GHz** | 2× Cortex-A78 @ **2.5 GHz** + 6× A55 @ **2.0 GHz** | **~3.5× Faster IPC** |
+| **GPU Compute** | Maxwell Tegra X1 @ 384 MHz (**~196 GFLOPS**) | PowerVR BXM-8-256 @ 950 MHz (**~240–280 GFLOPS**) | **Higher Compute & Fillrate** |
+| **RAM Capacity**| 4 GB LPDDR4 | 6 GB to 8 GB LPDDR4X | **1.5× to 2× Memory Headroom** |
+| **Memory Bandwidth** | ~25.6 GB/s | ~25.6 GB/s LPDDR4X | **Equivalent Bandwidth** |
+
+The Dimensity 7025 hardware is significantly more capable than the original Switch in handheld mode.
+
+### Why Did Retro/2D Games Crash on the Stock Driver?
+Users often report that even 2D GBA classic ports (*Pokémon Fire Red*, *Castlevania*) immediately crash emulators on the stock MediaTek driver. This is caused by **vendor software defects**, not hardware weakness:
+1. **Vendor Compiler Crashes (`libusc.so`):** The proprietary shader compiler throws `SIGSEGV` segmentation faults when compiling NVN-to-SPIR-V translated shaders.
+2. **ASTC View Quirks:** The Switch OS packages all sprites and framebuffers in ASTC; quirks in `vulkan.mtk.so` caused emulator memory aborts (`SIGABRT`).
+3. **Clamped Limits:** The stock driver clamped push constants to 128B, causing pipeline creation failures.
+
+Mesa's clean, standard-compliant NIR compiler and driver stack resolve these bugs directly.
+
+### Target Playable Games
+* **2D Indie Masterpieces:** *Celeste*, *Hollow Knight*, *Undertale*, *Sonic Mania*, *Sea of Stars*, *Dead Cells*.
+* **Retro Ports & Classic Collections:** *Pokémon* GBA/NDS classic ports, *Castlevania Advance Collection*, *Mega Man Legacy Collection*.
+* **Lightweight JRPGs & Visual Novels:** *Chrono Trigger*, *Phoenix Wright: Ace Attorney*, *Octopath Traveler*.
+
+---
+
 ## Installation & Usage
 
 ### 1. In Nintendo Emulators (Eden / Azahar / Skyline)

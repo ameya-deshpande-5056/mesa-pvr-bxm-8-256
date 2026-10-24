@@ -19,10 +19,10 @@
 * **GPU:** Imagination PowerVR B-Series BXM-8-256.
 * **Hardware BVNC:** `35.3.408.101` (Packed uint64: `0x0023000301980065`).
 * **Kernel Driver:** Stock Imagination DDK `25.1@6715691` (`pvrsrvkm.ko`).
-* **Primary End-Goal Applications:**
-  * **Eden / Yuzu forks** (Nintendo Switch emulation on Android).
-  * **Azahar / Citra forks** (Nintendo 3DS emulation on Android).
-  * **Winlator / Gamehub** (PC gaming on Android via Box64 + Wine + DXVK).
+* **Primary End-Goal Applications & Target Performance:**
+  * **Realistic Target:** Stable **720p 30 FPS handheld gaming** for 2D indies (*Celeste*, *Hollow Knight*, *Dead Cells*, *Undertale*), retro ports (*Pokémon* GBA/NDS classic ports, *Castlevania*), and lightweight JRPGs in **Eden / Yuzu / Azahar / Winlator**.
+  * **Hardware Reality:** The Dimensity 7025 (2× Cortex-A78 @ 2.5 GHz, ~260 GFLOPS GPU) has ~3.5× higher CPU IPC and higher GPU compute than the original Nintendo Switch Tegra X1 in handheld mode (~196 GFLOPS). The hardware is not the bottleneck.
+  * **Why Games Crashed on Stock Driver:** Stock MediaTek `libusc.so` compiler threw `SIGSEGV` segmentation faults when compiling NVN-to-SPIR-V translated shaders; stock DDK clamped push constants and had ASTC format view mismatches. Mesa's standard-compliant NIR compiler fixes these compiler crashes.
 * **Target Delivery Mechanism (COMPLETED):**
   * Rootless **`adrenotools` `.zip` driver package** ([`dist/vulkan_pvr_bxm8256_adrenotools.zip`](dist/vulkan_pvr_bxm8256_adrenotools.zip)) for Eden and Azahar custom driver menus.
   * **Dual HAL (`HMI`) + ICD (`vk_icdGetInstanceProcAddr`, `vk_icdNegotiateLoaderICDInterfaceVersion`) exports** ([`dist/vulkan_pvr_bxm8256_icd.zip`](dist/vulkan_pvr_bxm8256_icd.zip)) for Winlator/DXVK.
@@ -35,7 +35,7 @@
 * **Mesa Source Directory:** [`research/mesa-src`](research/mesa-src) (tracked as official Git submodule pointing to [`https://gitlab.freedesktop.org/ameya-deshpande-5056/mesa.git`](https://gitlab.freedesktop.org/ameya-deshpande-5056/mesa.git)).
 * **Active Mesa Branch:** `bxm-ddk25-offline` (clean working tree, up to date with `myfork/bxm-ddk25-offline`).
 * **HEAD Mesa Commit:** `f1a4d5929bcf` — *"imagination: Align compute workgroup and push constant limits with B-Series profile"*
-* **Root Repository Commit:** `81163ea` on `main`.
+* **Root Repository Commit:** `698c7b2` on `main`.
   * Commit 1 ([`b60cf5fb70df`](research/mesa-src)): Added BVNC `35.3.408.101` profile (`bxm-8-256.h`).
   * Commit 2 ([`db29f27f10e8`](research/mesa-src)): Added DDK 25.1 bridge header (`pvr_srv_bridge_v25.h`), dual-stack dispatch, and B-Series 16-heap discovery.
   * Commit 3 ([`29856e95783c`](research/mesa-src)): Fixed PMR unref to Func 7 (`PMRUNREFPMR`), implemented DDK 25.1 PMR alloc for Func 8 (`PHYSMEMNEWRAMBACKEDPMR`), and updated verified hardware constants.

@@ -34,11 +34,15 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Install Python Build Dependencies
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install --upgrade "meson>=1.4.0" mako pyyaml packaging
+
       - name: Install Host Build Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            meson \
             ninja-build \
             bison \
             flex \
@@ -68,29 +72,9 @@ jobs:
             git submodule update --init --recursive || ./tools/setup_mesa.sh
           fi
 
-      - name: Build Native Host Helpers
+      - name: Set up Native Host Helpers
         run: |
-          echo "=== Building Native Host Helpers (mesa_clc, etc.) ==="
-          mkdir -p tools/native-bin
-          meson setup research/mesa-src/build-native research/mesa-src \
-            -Dbuildtype=release \
-            -Dgallium-drivers= \
-            -Dvulkan-drivers=imagination \
-            -Dplatforms= \
-            -Degl=disabled \
-            -Dgbm=disabled \
-            -Dtools=imagination \
-            -Dmesa-clc=enabled \
-            -Dprecomp-compiler=enabled
-          ninja -C research/mesa-src/build-native \
-            src/compiler/clc/mesa_clc \
-            src/compiler/spirv/vtn_bindgen2 \
-            src/imagination/pco/uscgen/pco_clc \
-            src/imagination/pdsc/pdsc_precomp
-          cp research/mesa-src/build-native/src/compiler/clc/mesa_clc tools/native-bin/
-          cp research/mesa-src/build-native/src/compiler/spirv/vtn_bindgen2 tools/native-bin/
-          cp research/mesa-src/build-native/src/imagination/pco/uscgen/pco_clc tools/native-bin/
-          cp research/mesa-src/build-native/src/imagination/pdsc/pdsc_precomp tools/native-bin/
+          echo "=== Setting up Native Host Helpers ==="
           chmod +x tools/native-bin/*
 
       - name: Compile Android AArch64 Driver & Package Zips

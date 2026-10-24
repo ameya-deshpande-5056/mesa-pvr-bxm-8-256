@@ -9,8 +9,7 @@ research/mesa-src/build*/
 .ninja_*
 compile_commands.json
 
-# Native compiler helper binaries and partition tools
-tools/native-bin/
+# Partition tools (host-only)
 tools/lpdumps
 tools/lpunpack
 

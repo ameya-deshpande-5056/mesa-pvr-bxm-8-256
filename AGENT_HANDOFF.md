@@ -79,6 +79,7 @@ This policy extends the upstream Mesa approach and is documented alongside the G
 | **Verified DDK 25.1 Header** | [`research/mesa-src/src/imagination/vulkan/winsys/pvrsrvkm/pvr_srv_bridge_v25.h`](research/mesa-src/src/imagination/vulkan/winsys/pvrsrvkm/pvr_srv_bridge_v25.h) |
 | **BXM-8-256 Hardware Profile** | [`research/mesa-src/src/imagination/common/device_info/bxm-8-256.h`](research/mesa-src/src/imagination/common/device_info/bxm-8-256.h) |
 | **Host Regression Harness** | [`tests/test_bridge_v25_mock.c`](tests/test_bridge_v25_mock.c) & binary [`tests/test_bridge_v25_mock`](tests/test_bridge_v25_mock) |
+| **ASTC (M17) Coverage Gate** | [`test_astc_format_coverage.py`](test_astc_format_coverage.py) |
 | **Vendor Device Properties Dump** | [`device-info/vkjson.json`](device-info/vkjson.json) |
 
 ---
@@ -98,6 +99,17 @@ ninja -C /home/ameya/bxm-research/research/mesa-src/build-android src/imaginatio
 python3 /home/ameya/bxm-research/tools/package_driver.py
 ```
 
+### Run the Offline Feature Gates
+```bash
+python3 /home/ameya/bxm-research/test_astc_format_coverage.py   # M17 ASTC table consistency
+python3 /home/ameya/bxm-research/test_depth_clamp_wiring.py      # M18 clamp/clip bit contract
+python3 /home/ameya/bxm-research/test_volcanic_mock.py           # L1: XML / header / BVNC / meson wiring
+python3 /home/ameya/bxm-research/test_volcanic_header_validation.py  # L2: generated header content
+gcc -Wall -Wextra -O2 /home/ameya/bxm-research/tests/test_drm_shim_mock.c -o /home/ameya/bxm-research/tests/test_drm_shim_mock && /home/ameya/bxm-research/tests/test_drm_shim_mock
+```
+
+> **Build state note (2026-11-12):** Mesa commit `7f6bd1acab92` ("Refactor code structure...") renamed shared compiler/Vulkan sources from `ROGUE_*` to `VOLCANIC_*` before a Volcanic per-arch implementation existed, which left the tree with 368 compile errors. Those 57 files were restored to their pre-migration content (`a2eee7644388`) so the driver links again. The added Volcanic scaffolding (`src/imagination/csbgen/volcanic/`, `include/hwdef/volcanic_hw_*.h`, `vulkan/volcanic/*.c`) is still present but **not built**, and the BXM profile declares `.arch = PVR_DEVICE_ARCH_ROGUE` so dispatch targets the compiled implementation. Do not re-apply that rename without porting the per-arch code and defining the Volcanic constants it needs.
+
 ---
 
 ## 6. Milestone Roadmap & Next Tasks
@@ -107,9 +119,11 @@ python3 /home/ameya/bxm-research/tools/package_driver.py
 * **Milestone 11 [VERIFIED HOST-ONLY]:**
   * **DRM-Shim / Mock Device Pipeline Verification:** The offline mock render-node lifecycle and invalid-submit cleanup checks are implemented and passing in [`tests/test_drm_shim_mock.c`](tests/test_drm_shim_mock.c). This is the current authorized no-device safety gate.
   * **ABI regression gate:** [`tests/test_bridge_v25_mock.c`](tests/test_bridge_v25_mock.c) passed with fresh output and remains the stronger low-level verification path.
+* **Milestone 17 [COMPLETE / HOST-VALIDATED]:**
+  * **Native ASTC LDR textures:** 28 `FORMAT_COMPRESSED()` entries in `pvr_arch_formats.c`, 14 compressed border-colour entries in `pvr_arch_border.c`, and `.textureCompressionASTC_LDR = PVR_HAS_FEATURE(dev_info, astc)`. Gate: `python3 test_astc_format_coverage.py`. Native TPU sampling on silicon is still unverified.
+* **Milestone 18 [COMPLETE / HOST-VALIDATED]:**
+  * **ISP depth clamping:** `pvr_depth_clamp_enabled()` drives both `TA_STATE_PPP_CTRL.clip_mode` and `TA_OUTPUT_SEL.isp_position_depth_clamp_z`; `.depthClamp = true`. Gate: `python3 test_depth_clamp_wiring.py`. Silicon behaviour unverified, and `VK_EXT_depth_clamp_zero_one` is still advertised unconditionally (see the M18 entry in `MILESTONE_EXECUTION_LOG.md`).
 * **Driver Feature Expansion Roadmap [PLANNED / THINGS TO DO]:**
-  * **M17 (Native ASTC Textures):** Populate `pvr_formats.c` format table for `VK_FORMAT_ASTC_*`. Hardware TPU supports ASTC; enables Switch (Eden) & 3DS (Azahar) textures.
-  * **M18 (Depth Clamping):** Hook depth-clamp state bit into ISP command packets in `pvr_arch_cmd_buffer.c`.
   * **M19 (Descriptor Indexing / Bindless):** Implement NIR indirect descriptor load lowering to global memory (Turnip style) to support modern Winlator/DXVK games.
   * **M20 (Int64 / Int8 Math):** Hook `nir_lower_int64` and `nir_lower_bit_size` in PCO backend compiler.
   * **M21 (Multi-Viewport):** Expand `PVR_MAX_VIEWPORTS` and route PPP viewport state.

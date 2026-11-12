@@ -7,6 +7,86 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.2.0-alpha] - 2026-11-12
+
+### Milestone 17: Native ASTC LDR Textures (host-validated)
+
+Switch (Eden) and 3DS (Azahar) titles ship their UI, sprites and framebuffers as ASTC. The driver now advertises and implements ASTC LDR sampling instead of falling back to ETC2 transcoding.
+
+### Added
+
+* **ASTC LDR format coverage (`pvr_arch_formats.c`):** 28 `FORMAT_COMPRESSED()` entries covering all 14 Vulkan ASTC block sizes in UNORM and sRGB, mapped to `ROGUE_TEXSTATE_FORMAT_COMPRESSED_ASTC_*` hardware indices 0-13. sRGB uses the same hardware index as UNORM because image-word0 carries the gamma bit.
+* **ASTC border colours (`pvr_arch_border.c`):** 14 compressed border-colour table entries so `VK_BORDER_COLOR_*` samplers get a correctly packed colour through the `U8U8U8U8` simple format on devices with `tpu_border_colour_enhanced`.
+* **ASTC LDR coverage gate (`test_astc_format_coverage.py`):** an offline check that keeps the Vulkan→pipe mapping, the format table, the border table, the generated texstate indices and the feature/profile bits consistent (156 checks).
+
+### Changed
+
+* **`textureCompressionASTC_LDR`** is now driven by the device feature bit (`PVR_HAS_FEATURE(dev_info, astc)`) instead of being hardcoded `false`. The BXM-8-256 profile already set `has_astc = true`; nothing was consuming it.
+
+### Fixed
+
+* **Restored a buildable driver tree.** Mesa commit `7f6bd1acab92` renamed shared compiler and Vulkan sources from `ROGUE_*` to `VOLCANIC_*` before a Volcanic per-arch implementation existed, leaving 368 unique compile errors (`VOLCANIC_MAX_INSTANCES_PER_TASK`, `VOLCANIC_NUM_TEXSTATE_DWORDS`, `VOLCANIC_TEXSTATE_IMAGE_WORD0_TEXFORMAT_MAX_SIZE`, missing `rogue_get_temps()`, incomplete `VOLCANIC_VDMCTRL_STREAM_LINK0`, ...). The affected files were restored to their pre-migration content; the added Volcanic scaffolding remains in-tree as reference but is not built, and the BXM profile keeps `.arch = PVR_DEVICE_ARCH_ROGUE` so dispatch targets the compiled per-arch code. The AArch64 driver links again (12,094,472 bytes) and both zips were rebuilt.
+
+### Verification
+
+| Check | Result |
+| :--- | :--- |
+| `ninja -C build-android src/imagination/vulkan/libvulkan_powervr_mesa.so` | Links, 12,094,472 bytes |
+| `python3 test_astc_format_coverage.py` | 156 checks, 0 failures |
+| `tests/test_bridge_v25_mock` (fresh build) | Passed |
+| `tests/test_drm_shim_mock` (fresh build) | Passed |
+| `python3 tools/package_driver.py` | Exports, `DT_NEEDED`, both zips rebuilt |
+
+> Native ASTC sampling on the BXM TPU is **not** yet verified on silicon; this milestone is validated at format-table, feature-advertisement and build level only.
+
+---
+
+### Milestone 18: ISP Depth Clamping (host-validated)
+
+Geometry crossing the near/far planes is now clamped to the depth range instead of being clipped, and `depthClamp` is advertised to applications.
+
+### Added
+
+* **`depthClamp` implementation (`pvr_arch_cmd_buffer.c`):** `TA_OUTPUT_SEL.isp_position_depth_clamp_z` is set from a new `pvr_depth_clamp_enabled()` predicate that resolves `VK_MESA_DEPTH_CLIP_ENABLE_*` together with the core `depthClampEnable` state. `TA_STATE_PPP_CTRL.clip_mode` is derived from the same predicate, so the "don't clip" and "clamp Z" bits cannot drift apart.
+* **Depth clamp wiring gate (`test_depth_clamp_wiring.py`):** offline check over the feature bit, the vendor `vkjson` evidence (`depthClamp = 1.0` on this device), the predicate and both of its consumers, the dynamic-state plumbing, and the generated packet bit positions (19 checks, mutation-probed).
+
+### Changed
+
+* **Dynamic clamp/clip updates:** `MESA_VK_DYNAMIC_RS_DEPTH_CLIP_ENABLE` is now a PPP update trigger, and the dynamic-only emit path re-emits TA output selects as well as ISP control. Previously a `depthClampEnable` change without a pipeline rebind left the ISP clamp bit stale.
+* **`clip_mode` selection** was rewritten in terms of `pvr_depth_clamp_enabled()`; hardware behaviour is unchanged for every previously handled case.
+* **`depthClamp` feature flag** flipped to `true` in `pvr_physical_device.c`.
+
+### Known limitations
+
+* Not exercised on silicon.
+* `VK_EXT_depth_clamp_zero_one` is still advertised unconditionally. The ISP clamps after the viewport transform (to the viewport depth range), which only coincides with the extension's [0, 1] pre-transform clamp when the viewport depth range is [0, 1].
+* `TA_OUTPUT_SEL.tsp_unclamped_z_pres` is deliberately left at its pipeline-compile-time value: it is the fragment shader ABI for `pco_data.fs.uses.z`, not per-draw state, so toggling it per draw would desynchronise shader and packet.
+
+### Verification
+
+| Check | Result |
+| :--- | :--- |
+| `ninja -C build-android src/imagination/vulkan/libvulkan_powervr_mesa.so` | Links (only pre-existing `-Wenum-conversion` warnings in PDCS code) |
+| `python3 test_depth_clamp_wiring.py` | 19 checks, 0 failures |
+| Mutation probe (feature off / clamp bit orphaned) | Both states rejected, sources restored byte-identically |
+
+---
+
+### CI test corrections (L1 / L2)
+
+The two previously failing CI suites were failing because of wrong expectations, not because of wrong headers. Before changing anything, every checked-in header was regenerated with `gen_pack_header.py` from its volcanic XML: `cr.h`, `lls.h` and `ppp.h` came out **byte-identical** to the copies in the tree.
+
+* **`test_volcanic_mock.py` (`meson_configured`, was 7/8):** it looked for `gen_pack_header.py` inside `csbgen/meson.build`, which only contains `subdir('rogue')` / `subdir('volcanic')`; the generator is referenced from the per-arch `rogue/meson.build` and `volcanic/meson.build`. The check now inspects the file that owns each piece of wiring (subdirs in `csbgen/meson.build`, generator in both per-arch files) and additionally asserts that `texstate.xml` is generated for the volcanic arch. Now **8/8**.
+* **`test_volcanic_header_validation.py` (was 7/10):**
+  * `cr.h` required `COMPILE_TIME_ASSERT`, which `gen_pack_header.py` never emits. Replaced with a real structural marker, `VOLCANIC_CR_CR_REG_WORD0`.
+  * `lls.h` required `pack`/`unpack`/`length`/`header`, but `lls.xml` is a constants-only source (buffer sizes and alignments), so no packet functions can exist. It now checks the constants it really generates (`CDM_CONTEXT_RESUME_BUFFER_SIZE`, `TA_STATE_BUFFER_SIZE`, `USC_SHARED_REGS_BUFFER_SIZE`, `TA_STATE_BUFFER_ALIGNMENT`).
+  * `ppp.h` required `VOLCANIC_PPP`, but `csbgen/volcanic/ppp.xml` declares `prefix="TA"`, so the generated symbols are `VOLCANIC_TA_*` and `VOLCANIC_PPP` can never appear. It now checks `VOLCANIC_TA_`, `VOLCANIC_TA_TA_REG_WORD0` and `VOLCANIC_TA_CLIP_MODE`.
+  * Now **10/10**.
+
+Both corrections were mutation-probed: deleting a real `lls.h` constant and rewriting the `ppp.h` prefix each produced exactly one failure, after which the headers were restored byte-identically.
+
+---
+
 ## [0.1.0-alpha] - 2026-10-24
 
 ### Initial Offline Alpha Release: BXM-8-256 Turnip-Style Vulkan Driver

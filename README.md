@@ -171,8 +171,8 @@ This release (`v0.1.0-alpha`) focuses on DDK 25.1 kernel ABI alignment, dual-loa
 | **Push Constants** | ✅ Supported | 256 bytes supported (`PVR_MAX_PUSH_CONSTANTS_SIZE`) |
 | **32-Bit Draw Indexing** | ✅ Supported | Full 32-bit index buffers enabled (`fullDrawIndexUint32`) |
 | **Timeline Semaphores** | ✅ Supported | Native timeline semaphore sync (`VK_KHR_timeline_semaphore`) |
-| **ASTC Textures** | ⏳ **Planned (M17)** | Supported by hardware TPU; pending format table mapping in `pvr_formats.c` |
-| **Depth Clamping** | ⏳ **Planned (M18)** | Pending ISP command packet state wiring in `pvr_arch_cmd_buffer.c` |
+| **ASTC Textures** | ✅ Supported (M17) | 14 block sizes × UNORM/sRGB mapped in `pvr_arch_formats.c`; gated on the device `has_astc` feature. Validate with `python3 test_astc_format_coverage.py` |
+| **Depth Clamping** | ✅ Supported (M18) | `TA_OUTPUT_SEL.isp_position_depth_clamp_z` + `clip_mode` driven by one predicate; gated by `test_depth_clamp_wiring.py` |
 | **Descriptor Indexing** | ⏳ **Planned (M19)** | Pending NIR indirect descriptor load lowering for bindless resources |
 | **64-bit Integer (`Int64`)** | ⏳ **Planned (M20)** | Pending register-pair ALU lowering (`nir_lower_int64`) in PCO compiler |
 | **Geometry & Tessellation** | ⏳ **Planned (M22)** | Requires multi-pass Parameter Buffer streaming emulation on TBDR |

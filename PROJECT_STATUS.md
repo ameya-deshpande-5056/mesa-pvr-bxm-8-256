@@ -30,6 +30,8 @@ If you are an incoming AI agent or engineer entering a new conversation context 
      - **Adrenotools `.zip` package (`dist/vulkan_pvr_bxm8256_adrenotools.zip`): 100% COMPLETE**.
      - **Standalone ICD manifest & `.zip` (`dist/vulkan_pvr_bxm8256_icd.zip`): 100% COMPLETE**.
      - **PCO Compiler & Device Limits (Milestone 12): 100% COMPLETE**.
+   * **Milestone 17 (Native ASTC LDR textures): implemented and host-validated** — 28 format entries, 14 border-colour entries, feature gated on `has_astc`; gate [`test_astc_format_coverage.py`](test_astc_format_coverage.py) passes 156 checks. Silicon sampling is unverified.
+   * **Build state:** the tree builds again after restoring the shared compiler/Vulkan sources that a half-finished `ROGUE_*` → `VOLCANIC_*` rename had broken; see the M17 entry in [`MILESTONE_EXECUTION_LOG.md`](MILESTONE_EXECUTION_LOG.md). Volcanic per-arch code is present as scaffolding but is not compiled, and `.arch` stays `PVR_DEVICE_ARCH_ROGUE`.
    * Mesa branch: `bxm-ddk25-offline` in [`research/mesa-src`](research/mesa-src), clean working tree at commit `f1a4d5929bcf`.
    * Cross-compiled driver binary: [`research/mesa-src/build-android/src/imagination/vulkan/libvulkan_powervr_mesa.so`](research/mesa-src/build-android/src/imagination/vulkan/libvulkan_powervr_mesa.so) (12 MB ELF64, 0 non-Bionic dependencies).
    * Host regression tests: [`tests/test_bridge_v25_mock`](tests/test_bridge_v25_mock) and [`tests/test_drm_shim_mock`](tests/test_drm_shim_mock) are passing under the offline safety policy.
@@ -186,12 +188,14 @@ Legend: [X] Completed & Verified  |  [~] In Progress  |  [ ] Planned / Pending
   * *Current status:* This is now represented by the host-only render-node mock in [`tests/test_drm_shim_mock.c`](tests/test_drm_shim_mock.c), along with the stronger ABI regression suite in [`tests/test_bridge_v25_mock.c`](tests/test_bridge_v25_mock.c). Both are passing under the strict offline safety policy.
 
 ### Phase 4: Driver Capability Expansion & Vulkan Feature Roadmap (Things To Do)
-- [ ] **M17: Native ASTC Texture Compression (`textureCompressionASTC_LDR`)**
-  * *Context:* BXM-8-256 TPU (Texture Processing Unit) has native hardware ASTC decompression (`1.0` in vendor driver). Currently disabled in Mesa because [`pvr_formats.c`](research/mesa-src/src/imagination/vulkan/pvr_formats.c) only defines ETC2 formats.
-  * *Task:* Populate `pvr_formats.c` format capability tables for `VK_FORMAT_ASTC_*_KHR` with hardware format bitfields and block dimensions. Crucial for Nintendo Switch (Eden/Yuzu) and 3DS (Azahar/Citra) emulators.
-- [ ] **M18: Image Synthesis Processor (ISP) Depth Clamping (`depthClamp`)**
-  * *Context:* Currently disabled (`depthClamp = false`). PowerVR's Tile Accelerator (TA) clips primitives outside the near/far frustum by default.
-  * *Task:* Hook depth-clamp state into ISP command packets in [`pvr_arch_cmd_buffer.c`](research/mesa-src/src/imagination/vulkan/pvr_arch_cmd_buffer.c) to clamp fragment depth instead of clipping primitives.
+- [X] **M17: Native ASTC Texture Compression (`textureCompressionASTC_LDR`) [HOST-VALIDATED]**
+  * *Context:* BXM-8-256 TPU (Texture Processing Unit) has native hardware ASTC decompression (`1.0` in vendor driver). It was disabled because the per-arch format registry only listed ETC2/EAC formats.
+  * *Implementation:* 28 `FORMAT_COMPRESSED()` entries (14 block sizes × UNORM/sRGB) in [`pvr_arch_formats.c`](research/mesa-src/src/imagination/vulkan/pvr_arch_formats.c) mapped to texstate indices 0-13, 14 compressed border-colour entries in [`pvr_arch_border.c`](research/mesa-src/src/imagination/vulkan/pvr_arch_border.c), and `.textureCompressionASTC_LDR = PVR_HAS_FEATURE(dev_info, astc)` in [`pvr_physical_device.c`](research/mesa-src/src/imagination/vulkan/pvr_physical_device.c).
+  * *Verification:* [`test_astc_format_coverage.py`](test_astc_format_coverage.py) (156 checks, 0 failures) plus a clean AArch64 cross-link. Native TPU sampling on silicon is still unverified. Crucial for Nintendo Switch (Eden/Yuzu) and 3DS (Azahar/Citra) emulators.
+- [X] **M18: Image Synthesis Processor (ISP) Depth Clamping (`depthClamp`) [HOST-VALIDATED]**
+  * *Context:* The TA clips primitives outside the near/far frustum by default; the vendor driver reports `depthClamp = 1.0` on this device.
+  * *Implementation:* `TA_STATE_PPP_CTRL.clip_mode` and `TA_OUTPUT_SEL.isp_position_depth_clamp_z` are both derived from one predicate, `pvr_depth_clamp_enabled()`, in [`pvr_arch_cmd_buffer.c`](research/mesa-src/src/imagination/vulkan/pvr_arch_cmd_buffer.c); dynamic clamp/clip changes re-emit TA output selects; `.depthClamp = true` in [`pvr_physical_device.c`](research/mesa-src/src/imagination/vulkan/pvr_physical_device.c).
+  * *Verification:* [`test_depth_clamp_wiring.py`](test_depth_clamp_wiring.py) (19 checks, mutation-probed) plus a clean AArch64 cross-link. Silicon behaviour is unverified; `VK_EXT_depth_clamp_zero_one` remains over-advertised.
 - [ ] **M19: Descriptor Indexing & Bindless Resource Lowering (`descriptorIndexing`)**
   * *Context:* Currently disabled (`descriptorIndexing = false`, `runtimeDescriptorArray = false`). PowerVR uses Parameter Data Streamer (PDS) programs that statically bind descriptors ahead of time, which fails on dynamic/runtime array indices (`textures[dynamic_id]`).
   * *Task:* Implement a NIR lowering pass that converts dynamic descriptor indexing into direct 64-bit GPU memory loads (mirroring Turnip's `tu_descriptor_set.c` approach) or generate dynamic looping PDS programs. Required for modern PC titles (Winlator / DXVK) and advanced Switch games.
@@ -349,7 +353,7 @@ Config 0: 16 Heaps Total
 | **BC (DXTC) Textures** | ❌ **No HW Silicon** | ❌ (`0.0`) | ❌ (`false`) | Hardware lacks BC decompression units; requires compute shader decompression |
 | **64-bit Float (`FP64`)**| ❌ **No HW Silicon** | ❌ (`0.0`) | ❌ (`false`) | USC ALUs are strictly 32-bit/16-bit; no double-precision hardware units |
 | **64-bit Integer** | ⚠️ Register Pairing | ✅ | ❌ (`false`) | Requires 64-bit register-pair ALU lowering (`nir_lower_int64`) in PCO backend |
-| **Depth Clamping** | ✅ Native in ISP | ✅ | ❌ (`false`) | Requires hooking depth-clamp bit in Image Synthesis Processor (ISP) command packets |
+| **Depth Clamping** | ✅ Native in ISP | ✅ | ✅ (`true`, M18) | `clip_mode` = `NO_FRONT_OR_REAR` + ISP `isp_position_depth_clamp_z`, both from `pvr_depth_clamp_enabled()` |
 | **Multi-Viewport** | ✅ Native in PPP | ✅ | ❌ (`false`) | Hardcoded to single viewport (`PVR_MAX_VIEWPORTS = 1`) |
 
 ---
@@ -396,8 +400,8 @@ aarch64-linux-gnu-readelf -d \
 1. **Offline DRM-Shim Pipeline Verification (Milestone 11):**
    * *Action:* Configure Mesa's `powervr_noop_drm_shim` or implement a host winsys wrapper that mocks `/dev/dri/renderD128`, enabling offline testing of SPIR-V pipeline compilation, PDS program generation, and CDM command building before touching hardware.
 2. **Prioritized Feature Implementations (Milestones 17–20):**
-   * *M17 (Native ASTC):* Populate `VK_FORMAT_ASTC_*` entries in `pvr_formats.c` to unlock standard textures in Nintendo Switch (Eden/Yuzu) and 3DS (Azahar/Citra) emulation.
-   * *M18 (Depth Clamping):* Hook depth-clamp state into ISP command packets in `pvr_arch_cmd_buffer.c`.
+   * *M17 (Native ASTC):* **COMPLETE (host-validated).** `VK_FORMAT_ASTC_*` entries are registered in `pvr_arch_formats.c` and the feature is advertised from the `has_astc` device bit, unlocking standard textures in Nintendo Switch (Eden/Yuzu) and 3DS (Azahar/Citra) emulation.
+   * *M18 (Depth Clamping):* **COMPLETE (host-validated).** `clip_mode` and the ISP `isp_position_depth_clamp_z` bit are driven by one predicate; gate is `test_depth_clamp_wiring.py`.
    * *M19 (Descriptor Indexing):* Port Turnip-like indirect descriptor buffer lowering to NIR to unlock modern Winlator/DXVK games.
    * *M20 (Int64 / Int8):* Enable `nir_lower_int64` and `nir_lower_bit_size` in the PCO backend compiler.
 3. **Physical Device Testing Freeze:**

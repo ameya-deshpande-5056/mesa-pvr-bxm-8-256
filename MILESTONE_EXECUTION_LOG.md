@@ -327,19 +327,120 @@ Enable `textureCompressionASTC_LDR` support by adding the missing ASTC format en
 - [research/mesa-src/src/imagination/vulkan/pvr_formats.c](research/mesa-src/src/imagination/vulkan/pvr_formats.c)
 - [research/mesa-src/src/imagination/vulkan/pvr_formats.h](research/mesa-src/src/imagination/vulkan/pvr_formats.h)
 
-#### Current findings
-- `textureCompressionASTC_LDR` is explicitly set to `false` in the physical device feature table.
-- There are no ASTC entries in `pvr_formats.c` discovered in a targeted search.
-- This indicates the feature is currently disabled by omission and not yet supported by the format registry.
+#### Pre-requisite: build recovery (recorded before M17 could be validated)
 
-#### Implementation plan for the next pass
-1. Audit the format registration pattern in `pvr_formats.c` and identify the equivalent compressed texture registration model.
-2. Add the supported ASTC Vulkan formats for the PowerVR driver.
-3. Flip the physical device feature `textureCompressionASTC_LDR` to `true` only after format coverage is validated.
-4. Run the relevant compile-check or targeted unit verification to confirm the change does not break the driver build.
+The Mesa tree at commit `032044c13213` did not compile. The *"Refactor code structure for improved readability and maintainability"* commit (`7f6bd1acab92`) mechanically renamed shared compiler and Vulkan sources from `ROGUE_*` / `rogue_hw_utils.h` to `VOLCANIC_*` / `volcanic_hw_utils.h` before a Volcanic per-arch implementation existed, which produced 368 unique compile errors (`VOLCANIC_MAX_INSTANCES_PER_TASK`, `VOLCANIC_NUM_TEXSTATE_DWORDS`, `VOLCANIC_TEXSTATE_IMAGE_WORD0_TEXFORMAT_MAX_SIZE`, missing `rogue_get_temps()` / `rogue_max_wg_temps()`, incomplete `VOLCANIC_VDMCTRL_STREAM_LINK0`, ...).
 
-#### Status
-M17: investigation started; no patch yet.
+Decision: restore the 57 files that commit touched to their pre-migration content (`git checkout a2eee7644388 -- <files>`) rather than inventing Volcanic hardware constants that no evidence supports. The Volcanic scaffolding added alongside it (volcanic csbgen XML, `volcanic_hw_*.h`, `vulkan/volcanic/*.c`) is kept in the tree as reference material but is not wired into the build, and the BXM profile keeps `.arch = PVR_DEVICE_ARCH_ROGUE` so the driver dispatches to the per-arch implementation that is actually compiled and tested.
+
+Result: `ninja -C build-android src/imagination/vulkan/libvulkan_powervr_mesa.so` links a 12,094,472-byte AArch64 driver again.
+
+#### Investigation findings
+- `textureCompressionASTC_LDR` was hardcoded `false` in the physical device feature table.
+- The `has_astc` bit already existed in `struct pvr_device_features` and is `true` for the BXM-8-256 profile, but nothing consumed it.
+- The compressed texstate enum already carries all 14 ASTC LDR block sizes at hardware indices 0-13, so no new packet definitions were required.
+- The format registry is per-arch (`pvr_arch_formats.c`), not `pvr_formats.c`, and its `FORMAT_COMPRESSED()` entries only listed ETC2/EAC formats.
+
+#### Implementation
+1. `pvr_arch_formats.c`: 28 `FORMAT_COMPRESSED()` entries (14 block sizes × UNORM/SRGB) mapping `PIPE_FORMAT_ASTC_*` to `ROGUE_TEXSTATE_FORMAT_COMPRESSED_ASTC_*`. sRGB shares the UNORM hardware index because sRGB decoding is selected by the image-word0 gamma bit, exactly as for ETC2.
+2. `pvr_arch_border.c`: 14 compressed border-colour entries, so ASTC samplers using `VK_BORDER_COLOR_*` get a packed colour through the `U8U8U8U8` simple format (BXM advertises `tpu_border_colour_enhanced`).
+3. `pvr_physical_device.c`: `.textureCompressionASTC_LDR = PVR_HAS_FEATURE(dev_info, astc)`.
+4. `test_astc_format_coverage.py`: new offline L2.5 gate that ties the five tables together (Vulkan→pipe mapping, format table, border table, texstate indices, feature flag + BXM profile).
+
+#### Validation
+```bash
+ninja -C build-android src/imagination/vulkan/libvulkan_powervr_mesa.so
+# -> links libvulkan_powervr_mesa.so (12,094,472 bytes)
+
+python3 /home/ameya/bxm-research/test_astc_format_coverage.py
+# -> 156 checks, 0 failures, "ALL ASTC (M17) COVERAGE CHECKS PASSED"
+
+gcc -Wall -Wextra -Werror -O2 tests/test_bridge_v25_mock.c -o tests/test_bridge_v25_mock && ./tests/test_bridge_v25_mock
+# -> ALL STRENGTHENED REGRESSION & ABI TESTS PASSED PERFECTLY
+
+gcc -Wall -Wextra -O2 tests/test_drm_shim_mock.c -o tests/test_drm_shim_mock && ./tests/test_drm_shim_mock
+# -> PASS: render-node lifecycle, submission, failure cleanup
+
+python3 tools/package_driver.py
+# -> both adrenotools and ICD zips rebuilt and re-validated
+```
+
+#### Outcome
+M17: implemented and validated **host-only**. The ASTC format tables and feature flag are compiled into the AArch64 driver; actual ASTC sampling on the BXM TPU is not yet verified on silicon. Switch (Eden) and 3DS (Azahar) content can now create and sample ASTC LDR images instead of relying on ETC2 transcoding.
+
+#### Next action
+M18 (ISP depth clamping), keeping the same offline evidence discipline: patch, cross-compile, re-run the host gates, document the result.
+
+---
+
+### Milestone M18 — ISP Depth Clamping (`depthClamp`)
+
+#### Objective
+Advertise and implement `VkPhysicalDeviceFeatures::depthClamp` so that geometry crossing the near/far planes is clamped to the depth range instead of being clipped or producing out-of-range depth values.
+
+#### Decision log
+- Decision: check what the hardware exposes before writing new packets.
+- Rationale: `TA_STATE_PPP_CTRL.clip_mode` already had a `NO_FRONT_OR_REAR` mode and `TA_OUTPUT_SEL` already had an `isp_position_depth_clamp_z` bit, so the packet definitions exist; the gap was that nothing set the ISP clamp bit and the feature was hardcoded off.
+- Decision: derive the TA clip mode and the ISP clamp bit from one shared predicate.
+- Rationale: the two bits are a contract. Clipping without the clamp bit discards geometry; clamping without the clamp bit lets an out-of-range Z reach the depth test. Deriving both from `pvr_depth_clamp_enabled()` makes it impossible to move one without the other.
+- Decision: leave `TA_OUTPUT_SEL.tsp_unclamped_z_pres` untouched.
+- Rationale: it is part of the fragment shader ABI (`pco_data.fs.uses.z`, decided at pipeline compile time by `pco_nir.c`/`pco_trans_nir.c`), not per-draw state. Toggling it per draw would desynchronise the shader from the packet.
+
+#### Evidence for the capability
+`device-info/vkjson.json` (vendor `vulkan.mtk.so` on this exact device) reports `depthClamp = 1.0`, so the silicon and the stock DDK support it; the feature was disabled in Mesa, not missing in hardware.
+
+#### Implementation
+1. `pvr_arch_cmd_buffer.c`: new `pvr_depth_clamp_enabled()` helper resolving `VK_MESA_DEPTH_CLIP_ENABLE_{FALSE,TRUE,NOT_CLAMP}` + core `depthClampEnable` into a single answer.
+2. `pvr_arch_cmd_buffer.c`: `TA_OUTPUT_SEL.isp_position_depth_clamp_z` now follows that predicate (it was never set).
+3. `pvr_arch_cmd_buffer.c`: `TA_STATE_PPP_CTRL.clip_mode` is derived from the same predicate (behaviour-preserving rewrite of the previous switch).
+4. `pvr_arch_cmd_buffer.c`: `MESA_VK_DYNAMIC_RS_DEPTH_CLIP_ENABLE` added to the PPP update trigger, and the dynamic-only emit path now re-emits TA output selects as well as ISP control — otherwise a `depthClampEnable` change without a pipeline rebind left the ISP clamp bit stale.
+5. `pvr_physical_device.c`: `.depthClamp = true`.
+6. `test_depth_clamp_wiring.py`: offline L2.6 gate over the feature bit, the vendor evidence, the predicate and both of its consumers, the dynamic-state plumbing, and the generated packet bit positions.
+
+#### Validation
+```bash
+ninja -C build-android src/imagination/vulkan/libvulkan_powervr_mesa.so
+# -> links (only pre-existing -Wenum-conversion warnings in pdcs code)
+
+python3 /home/ameya/bxm-research/test_depth_clamp_wiring.py
+# -> 19 checks, 0 failures, "ALL DEPTH CLAMP (M18) WIRING CHECKS PASSED"
+```
+
+Mutation probe (to prove the gate is not vacuous): flipping `.depthClamp` back to `false` and orphaning `isp_position_depth_clamp_z` each produced exactly one failure; the sources were then restored byte-identically (`diff -q`) and the gate passed again.
+
+#### Outcome
+M18: implemented and validated **host-only**. The clamp path is compiled into the AArch64 driver. Two things are explicitly not yet true:
+- Depth clamping has not been exercised on silicon.
+- `VK_EXT_depth_clamp_zero_one` is still advertised unconditionally. The ISP clamps after the viewport transform (to the viewport depth range), which only coincides with the extension's [0, 1] pre-transform clamp when `minDepth = 0` and `maxDepth = 1`. Tightening that advertisement is a follow-up, not part of this milestone.
+
+#### Next action
+M20 (Int64 / Int8 lowering) per the milestone order in force, or M19 (descriptor indexing) if Winlator/DXVK compatibility is prioritised first.
+
+---
+
+### CI test corrections — L1 (`test_volcanic_mock.py`) and L2 (`test_volcanic_header_validation.py`)
+
+#### Objective
+Clear the two suites that were failing before M17/M18 work started, without weakening them.
+
+#### Investigation
+Each checked-in header under `src/imagination/include/hwdef/` was regenerated with `csbgen/gen_pack_header.py` from its `csbgen/volcanic/*.xml` source. `cr.h`, `lls.h` and `ppp.h` — the three that failed — came out byte-identical to the tree copies (`diff -q`), so the headers were correct and the assertions were wrong. (For the record, `cdm.h`, `pbestate.h`, `pds.h` and `texstate.h` are *not* byte-identical to current generator output; that is a separate, deliberately untouched question.)
+
+#### Corrections
+1. **L1 `meson_configured`:** asserted `gen_pack_header.py` inside `csbgen/meson.build`, which only holds `subdir('rogue')` / `subdir('volcanic')`. The generator is referenced from `csbgen/rogue/meson.build:21` and `csbgen/volcanic/meson.build:17`. The check now reads the three files and asserts each piece of wiring where it actually lives, plus that `texstate.xml` is generated for volcanic.
+2. **L2 `cr.h`:** replaced the impossible `COMPILE_TIME_ASSERT` expectation (the generator emits no such token) with `VOLCANIC_CR_CR_REG_WORD0`.
+3. **L2 `lls.h`:** `lls.xml` declares only buffer size/alignment constants, so `pack`/`unpack`/`length`/`header` cannot exist. Now checks `VOLCANIC_LLS_CDM_CONTEXT_RESUME_BUFFER_SIZE`, `VOLCANIC_LLS_TA_STATE_BUFFER_SIZE`, `VOLCANIC_LLS_USC_SHARED_REGS_BUFFER_SIZE`, `VOLCANIC_LLS_TA_STATE_BUFFER_ALIGNMENT`.
+4. **L2 `ppp.h`:** `csbgen/volcanic/ppp.xml` declares `prefix="TA"`, so symbols are `VOLCANIC_TA_*`. Replaced `VOLCANIC_PPP` with `VOLCANIC_TA_`, `VOLCANIC_TA_TA_REG_WORD0`, `VOLCANIC_TA_CLIP_MODE`. A comment records the prefix contract so it is not "fixed" back later.
+
+#### Validation
+```bash
+python3 test_volcanic_mock.py                 # -> 8/8 tests passed
+python3 test_volcanic_header_validation.py    # -> 10/10 headers: all checks passed
+```
+Mutation probes: deleting `VOLCANIC_LLS_TA_STATE_BUFFER_SIZE` and rewriting the `ppp.h` prefix each produced exactly one failure (`9/10`), then the headers were restored byte-identically and the suite returned to 10/10.
+
+#### Outcome
+L1: 8/8, L2: 10/10, both non-vacuous. No product code changed; only the assertions.
 
 ---
 

@@ -86,6 +86,21 @@ def _read(path: str) -> str:
         return ""
 
 
+def _resolve_int_symbol(token: str, text: str) -> int | None:
+    """Resolve a literal, or a macro defined in the inspected sources.
+
+    The limits may legitimately name the cap (`PVR_MAX_VIEWPORTS`) instead of
+    repeating the number, so the check follows the symbol to its #define rather
+    than requiring a magic constant at the use site.
+    """
+    if token.isdigit():
+        return int(token)
+    m = re.search(r"#define\s+" + re.escape(token) + r"\s+(\d+)U?\b", text)
+    if not m:
+        return None
+    return int(m.group(1))
+
+
 def _run(cmd: str) -> tuple[bool, str]:
     try:
         r = subprocess.run(
@@ -157,10 +172,12 @@ def check_vulkan_max_viewports_minimum() -> bool:
         _read(os.path.join(MESA_SRC, "src/imagination/common/pvr_limits.h")),
     ]
     text_full = "\n".join(p for p in text_pieces if p)
-    m = re.search(r"\.maxViewports\s*=\s*(\d+)U?\b", text_full, re.MULTILINE)
+    m = re.search(r"\.maxViewports\s*=\s*(\w+)U?\b", text_full, re.MULTILINE)
     if not m:
         return False
-    reported = int(m.group(1))
+    reported = _resolve_int_symbol(m.group(1), text_full)
+    if reported is None:
+        return False
     return reported >= 16
 
 
@@ -212,6 +229,25 @@ def check_viewport_setup_handles_multiple() -> bool:
     return bool(has_loop)
 
 
+def check_region_clip_covers_all_viewports() -> bool:
+    """The ISP scissor and TA region clip are single rectangles, so with more
+    than one viewport they must be derived from every viewport/scissor pair.
+    A leftover `viewport_count == 1` assertion here would either abort in a
+    debug build or silently cull geometry in a release build."""
+    text = _read(CMD_BUFFER_C)
+    if re.search(r"assert\s*\([^;]*viewport_count\s*==\s*1\s*\)", text):
+        return False
+    if re.search(r"assert\s*\([^;]*scissor_count\s*==\s*1\s*\)", text):
+        return False
+    return bool(
+        re.search(
+            r"for\s*\(\s*uint32_t\s+\w+\s*=\s*0\s*;\s*\w+\s*<\s*"
+            r"dynamic_state->vp\.viewport_count\b",
+            text,
+        )
+    )
+
+
 # ---------------------------------------------------------------------------
 # 5/5  Vendor device-info agrees the capability is present.
 # ---------------------------------------------------------------------------
@@ -254,6 +290,7 @@ _TESTS = [
     ("Vulkan maxViewports >= 16", check_vulkan_max_viewports_minimum),
     ("multi-viewport emit path wired", check_multi_viewport_emit_path),
     ("viewport setup loops over viewport_count", check_viewport_setup_handles_multiple),
+    ("region clip/scissor union covers every viewport", check_region_clip_covers_all_viewports),
     ("vendor device-info maxViewports == 16.0", check_vendor_device_info_max_viewports_16),
     ("vendor device-info multiViewport == 1.0", check_vendor_device_info_multi_viewport_1),
 ]

@@ -56,9 +56,9 @@ This policy extends the upstream Mesa approach and is documented alongside the G
 ## 3. Current Git & Build State
 
 * **Mesa Source Directory:** [`research/mesa-src`](research/mesa-src) (tracked as official Git submodule pointing to [`https://gitlab.freedesktop.org/ameya-deshpande-5056/mesa.git`](https://gitlab.freedesktop.org/ameya-deshpande-5056/mesa.git)).
-* **Active Mesa Branch:** `bxm-ddk25-offline` (clean working tree, up to date with `myfork/bxm-ddk25-offline`).
-* **HEAD Mesa Commit:** `f1a4d5929bcf` — *"imagination: Align compute workgroup and push constant limits with B-Series profile"*
-* **Root Repository Commit:** `3ba6962` on `main`.
+* **Active Mesa Branch:** `bxm-ddk25-offline`, pushed to `myfork/bxm-ddk25-offline`.
+* **HEAD Mesa Commit:** the multi-viewport commit (M21) — check `git -C research/mesa-src log -1 --oneline` rather than trusting a hash written here.
+* **Root Repository Commit:** `main` on `origin` (GitHub). Check `git log -1 --oneline`.
   * Commit 1 ([`b60cf5fb70df`](research/mesa-src)): Added BVNC `35.3.408.101` profile (`bxm-8-256.h`).
   * Commit 2 ([`db29f27f10e8`](research/mesa-src)): Added DDK 25.1 bridge header (`pvr_srv_bridge_v25.h`), dual-stack dispatch, and B-Series 16-heap discovery.
   * Commit 3 ([`29856e95783c`](research/mesa-src)): Fixed PMR unref to Func 7 (`PMRUNREFPMR`), implemented DDK 25.1 PMR alloc for Func 8 (`PHYSMEMNEWRAMBACKEDPMR`), and updated verified hardware constants.
@@ -101,6 +101,7 @@ python3 /home/ameya/bxm-research/tools/package_driver.py
 
 ### Run the Offline Feature Gates
 ```bash
+python3 /home/ameya/bxm-research/test_multiviewport_wiring.py    # M21 multi-viewport feature/limit/clip wiring
 python3 /home/ameya/bxm-research/test_astc_format_coverage.py   # M17 ASTC table consistency
 python3 /home/ameya/bxm-research/test_depth_clamp_wiring.py      # M18 clamp/clip bit contract
 python3 /home/ameya/bxm-research/test_volcanic_mock.py           # L1: XML / header / BVNC / meson wiring
@@ -108,6 +109,8 @@ python3 /home/ameya/bxm-research/test_volcanic_header_validation.py  # L2: gener
 gcc -Wall -Wextra -O2 /home/ameya/bxm-research/tests/test_drm_shim_mock.c -o /home/ameya/bxm-research/tests/test_drm_shim_mock && /home/ameya/bxm-research/tests/test_drm_shim_mock
 ```
 
+> **Milestone state note (2026-11-12):** M17 (ASTC), M18 (depth clamp) and M21 (multi-viewport) are implemented and host-validated; all three still need on-silicon verification. M19 (descriptor indexing) is **not** implementable by flipping feature flags: descriptors are uploaded into USC shared registers by a per-layout PDS descriptor-upload program, so a runtime array index cannot select a descriptor. M22 (GS/tessellation) needs a Parameter Buffer streaming design. See `PROJECT_STATUS.md` before starting either.
+>
 > **Build state note (2026-11-12):** Mesa commit `7f6bd1acab92` ("Refactor code structure...") renamed shared compiler/Vulkan sources from `ROGUE_*` to `VOLCANIC_*` before a Volcanic per-arch implementation existed, which left the tree with 368 compile errors. Those 57 files were restored to their pre-migration content (`a2eee7644388`) so the driver links again. The added Volcanic scaffolding (`src/imagination/csbgen/volcanic/`, `include/hwdef/volcanic_hw_*.h`, `vulkan/volcanic/*.c`) is still present but **not built**, and the BXM profile declares `.arch = PVR_DEVICE_ARCH_ROGUE` so dispatch targets the compiled implementation. Do not re-apply that rename without porting the per-arch code and defining the Volcanic constants it needs.
 
 ---
@@ -123,10 +126,11 @@ gcc -Wall -Wextra -O2 /home/ameya/bxm-research/tests/test_drm_shim_mock.c -o /ho
   * **Native ASTC LDR textures:** 28 `FORMAT_COMPRESSED()` entries in `pvr_arch_formats.c`, 14 compressed border-colour entries in `pvr_arch_border.c`, and `.textureCompressionASTC_LDR = PVR_HAS_FEATURE(dev_info, astc)`. Gate: `python3 test_astc_format_coverage.py`. Native TPU sampling on silicon is still unverified.
 * **Milestone 18 [COMPLETE / HOST-VALIDATED]:**
   * **ISP depth clamping:** `pvr_depth_clamp_enabled()` drives both `TA_STATE_PPP_CTRL.clip_mode` and `TA_OUTPUT_SEL.isp_position_depth_clamp_z`; `.depthClamp = true`. Gate: `python3 test_depth_clamp_wiring.py`. Silicon behaviour unverified, and the `VK_EXT_depth_clamp_zero_one` clamp range still needs on-silicon confirmation (see the M18 entry in `MILESTONE_EXECUTION_LOG.md`).
+* **Milestone 21 [COMPLETE / HOST-VALIDATED]:**
+  * **Multi-viewport:** `has_multiviewport` device bit declared in `pvr_device_info.h` and consumed by `.multiViewport = PVR_HAS_FEATURE(dev_info, multiviewport)`; `.maxViewports = PVR_MAX_VIEWPORTS` (16). The ISP scissor / TA region clip now uses the union of every (`viewport[i]`, `scissor[min(i, count-1)]`) overlap instead of asserting a single viewport. Gate: `python3 test_multiviewport_wiring.py` (9 checks, mutation-probed). On-silicon rendering unverified.
 * **Driver Feature Expansion Roadmap [PLANNED / THINGS TO DO]:**
-  * **M19 (Descriptor Indexing / Bindless):** Implement NIR indirect descriptor load lowering to global memory (Turnip style) to support modern Winlator/DXVK games.
-  * **M20 (Int64 / Int8 Math):** Hook `nir_lower_int64` and `nir_lower_bit_size` in PCO backend compiler.
-  * **M21 (Multi-Viewport):** Expand `PVR_MAX_VIEWPORTS` and route PPP viewport state.
+  * **M19 (Descriptor Indexing / Bindless):** Implement NIR indirect descriptor load lowering to global memory (Turnip style) to support modern Winlator/DXVK games. **Do not just flip the feature flags** — a 2026-11-12 attempt did that and was reverted (invalid Vulkan feature combination, no-op lowering).
+  * **M20 (Int64 / Int8 Math):** Hook `nir_lower_int64` (already called in `pco_nir.c`) and `nir_lower_bit_size` in PCO backend compiler, then gate `shaderInt64` / `storageBuffer8BitAccess`.
   * **M22 (Geometry & Tessellation):** Implement intermediate Parameter Buffer (PB) streaming passes in PCO (emulating GS/Tess on TBDR).
   * **M23 (BC Texture Decompression):** Hardware lacks BC units (`0.0`); implement compute shader decompression for desktop textures in Winlator.
 * **Milestones 13–16: Physical Device Validation [AUTHORIZED / GATED]:**

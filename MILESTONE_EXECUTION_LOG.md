@@ -444,6 +444,59 @@ L1: 8/8, L2: 10/10, both non-vacuous. No product code changed; only the assertio
 
 ---
 
+### Milestone M21 — Multi-Viewport (`multiViewport`)
+
+#### Objective
+Advertise and implement `VkPhysicalDeviceFeatures::multiViewport` so a single draw can target up to 16 viewports, which the vendor driver already supports on this device.
+
+#### Starting state
+The milestone commit (`6109b1c`) added `.has_multiviewport = true` to the BXM-8-256 profile and raised `PVR_MAX_VIEWPORTS` to 16, but:
+- `has_multiviewport` did not exist in `struct pvr_device_features`, so the tree did not compile;
+- nothing consumed the bit: `.multiViewport` was still `false` and `.maxViewports` still `1U`;
+- an uncommitted follow-up had deleted the feature bit to get the build green again, which broke the gate (5/8).
+
+#### Decision log
+- Decision: declare the feature bit rather than hardcode `multiViewport = true`.
+- Rationale: the same driver builds for every PVR device; the capability is a device property and the BXM-8-256 profile already carries the evidence.
+- Decision: express the scissor/region clip as the **union** of every viewport overlap instead of picking viewport 0 or dropping early culling.
+- Rationale: the ISP scissor and the TA `REGION_CLIP` are single rectangles in the packet stream. Both are conservative early-cull regions, so a bounding union is correct by construction (it can only cull less), while viewport 0's rectangle would cull geometry belonging to the other viewports. Dropping culling entirely would work but throws away a large amount of bandwidth on a TBDR part.
+- Decision: pair viewport *i* with scissor `min(i, scissor_count - 1)`.
+- Rationale: that is the Vulkan rule when fewer scissors than viewports are set.
+- Decision: keep `maxViewports = PVR_MAX_VIEWPORTS` symbolic rather than a bare `16U`.
+- Rationale: one source of truth for the cap; the gate resolves the macro instead of requiring a magic number at the use site.
+
+#### Implementation
+1. `pvr_device_info.h`: `bool has_multiviewport : 1;` added in alphabetical order to `struct pvr_device_features`.
+2. `pvr_physical_device.c`: `.multiViewport = PVR_HAS_FEATURE(dev_info, multiviewport)` and `.maxViewports = PVR_MAX_VIEWPORTS`.
+3. `pvr_arch_cmd_buffer.c`: `pvr_setup_isp_depth_bias_scissor_state()` now loops over `dynamic_state->vp.viewport_count`, unions the non-empty `pvr_get_viewport_scissor_overlap()` rectangles, and derives the ISP scissor words plus region clip from that union. The two single-viewport asserts were replaced by range asserts (`1 .. PVR_MAX_VIEWPORTS` and `scissor_count >= 1`).
+4. `test_multiviewport_wiring.py`: added a ninth check that no `viewport_count == 1` / `scissor_count == 1` assert survives and that the region-clip loop exists; the `maxViewports` check now resolves a symbolic value through its `#define`.
+
+#### Validation
+```bash
+ninja -C build-android src/imagination/vulkan/libvulkan_powervr_mesa.so
+# -> links, 6,986,008 bytes
+
+python3 test_multiviewport_wiring.py
+# -> 9/9 checks, "All M21 multi-viewport wiring checks pass"
+```
+Mutation probes (to prove the two new behaviours are actually covered): ungating `.multiViewport` and restoring `assert(viewport_count == 1)` each produced exactly one failure; both sources were then restored byte-identically (`diff -q`) and the gate returned to 9/9.
+
+Full sweep re-run in the same session: `test_astc_format_coverage.py` 156/156, `test_depth_clamp_wiring.py` 19/19, `test_volcanic_mock.py` 8/8, `test_volcanic_header_validation.py` 10/10, `test_bridge_v25_mock` and `test_drm_shim_mock` passed from fresh builds, and `tools/package_driver.py` rebuilt both zips after validating exports and `DT_NEEDED`.
+
+#### Outcome
+M21: implemented and validated **host-only**. Remaining on-silicon question: whether the union region clip interacts correctly with per-primitive `gl_ViewportIndex` selection, i.e. that no primitive is culled because its own viewport rectangle is a strict subset of the union.
+
+#### M19 attempt that was reverted
+Before M21 was finished, an uncommitted descriptor-indexing change was found in the working tree:
+- `pvr_physical_device.c` enabled every `shader*ArrayNonUniformIndexing`, `descriptorBinding*UpdateAfterBind`, `descriptorBindingUpdateUnusedWhilePending`, `descriptorBindingPartiallyBound`, `descriptorBindingVariableDescriptorCount` and `runtimeDescriptorArray` flag, plus the four `*NonUniformIndexingNative` properties and `maxUpdateAfterBindDescriptorsInAllPools`, while leaving `descriptorIndexing = false` — the spec forbids the sub-features when the umbrella feature is off, so the advertised set was invalid;
+- `pco_nir_vk.c` grew an `if (desc_set == UINT32_MAX)` branch whose two bodies were byte-identical, so no bindless path existed;
+- `pco_data.h` gained `descriptor_buffer` / `has_descriptor_buffer` fields that nothing reads;
+- the profile was switched to `PVR_DEVICE_ARCH_VOLCANIC`, which the M17 entry in this log already records as unbuildable without the per-arch port.
+
+All of it was reverted, and the supporting `test_descriptor_indexing.py` (which asserted exactly those strings) was deleted: it was a gate for code that does not exist, not for a feature. M19 remains planned, with its real requirement stated in `PROJECT_STATUS.md`: a lowering that can fetch a descriptor through a runtime array index, which the PDS static-binding model does not provide today.
+
+---
+
 ## Notes on Execution
 
 This log is intentionally designed to be transparent and auditable. The working assumption is:

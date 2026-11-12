@@ -72,6 +72,42 @@ Geometry crossing the near/far planes is now clamped to the depth range instead 
 
 ---
 
+### Milestone 21: Multi-Viewport (host-validated)
+
+Applications can now bind more than one viewport per draw. The vendor driver already reports `maxViewports = 16.0` / `multiViewport = 1.0` on this device; Mesa was hardcoding a single viewport.
+
+### Added
+
+* **`has_multiviewport` device-feature bit (`pvr_device_info.h`):** the bit was already set in the BXM-8-256 profile but did not exist in `struct pvr_device_features`, so the tree did not compile. It is now declared and consumed.
+* **Multi-viewport region clip (`pvr_arch_cmd_buffer.c`):** the ISP scissor and the TA `REGION_CLIP` are single rectangles, so with more than one viewport they are now derived from the union of every (`viewport[i]`, `scissor[min(i, scissor_count - 1)]`) overlap. Both are conservative early-cull regions, so a union never culls visible geometry. The previous `assert(viewport_count == 1)` / `assert(scissor_count == 1)` are gone; a leftover assert would have aborted debug builds and silently culled geometry in release builds.
+
+### Changed
+
+* **`.multiViewport`** is advertised from `PVR_HAS_FEATURE(dev_info, multiviewport)` instead of being hardcoded `false`.
+* **`.maxViewports`** is `PVR_MAX_VIEWPORTS` (16) instead of `1`, matching the device capability.
+* **`PVR_MAX_VIEWPORTS`** raised from 1 to 16 so the per-viewport state arrays in `pvr_cmd_buffer.h` are wide enough.
+
+### Reverted
+
+* **An in-progress descriptor-indexing (M19) change was removed.** It set `shader*ArrayNonUniformIndexing`, every `descriptorBinding*UpdateAfterBind`, `runtimeDescriptorArray`, the four `*NonUniformIndexingNative` flags and `maxUpdateAfterBindDescriptorsInAllPools` to their enabled values while leaving `descriptorIndexing = false` — an invalid Vulkan feature combination — and its `lower_load_vulkan_descriptor` "bindless" branch was a no-op whose `if`/`else` bodies were identical. Advertising descriptor indexing before the lowering exists would hand applications a feature the driver cannot execute. M19 stays planned.
+* **A `PVR_DEVICE_ARCH_VOLCANIC` arch flip was removed** for the same reason recorded in M17: the per-arch Volcanic implementation does not exist yet, so the profile keeps `.arch = PVR_DEVICE_ARCH_ROGUE` and dispatch targets code that is actually compiled.
+
+### Verification
+
+| Check | Result |
+| :--- | :--- |
+| `ninja -C build-android src/imagination/vulkan/libvulkan_powervr_mesa.so` | Links, 6,986,008 bytes |
+| `python3 test_multiviewport_wiring.py` | 9 checks, 0 failures (mutation-probed twice) |
+| `python3 test_astc_format_coverage.py` | 156 checks, 0 failures |
+| `python3 test_depth_clamp_wiring.py` | 19 checks, 0 failures |
+| `python3 test_volcanic_mock.py` / `test_volcanic_header_validation.py` | 8/8, 10/10 |
+| `tests/test_bridge_v25_mock` / `tests/test_drm_shim_mock` (fresh builds) | Passed |
+| `python3 tools/package_driver.py` | Exports, `DT_NEEDED`, both zips rebuilt |
+
+> Multi-viewport rendering is **not** yet exercised on silicon. In particular, whether the union region clip interacts correctly with per-primitive `gl_ViewportIndex` culling needs an on-device draw.
+
+---
+
 ### CI test corrections (L1 / L2)
 
 The two previously failing CI suites were failing because of wrong expectations, not because of wrong headers. Before changing anything, every checked-in header was regenerated with `gen_pack_header.py` from its volcanic XML: `cr.h`, `lls.h` and `ppp.h` came out **byte-identical** to the copies in the tree.

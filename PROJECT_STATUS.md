@@ -199,12 +199,14 @@ Legend: [X] Completed & Verified  |  [~] In Progress  |  [ ] Planned / Pending
 - [ ] **M19: Descriptor Indexing & Bindless Resource Lowering (`descriptorIndexing`)**
   * *Context:* Currently disabled (`descriptorIndexing = false`, `runtimeDescriptorArray = false`). PowerVR uses Parameter Data Streamer (PDS) programs that statically bind descriptors ahead of time, which fails on dynamic/runtime array indices (`textures[dynamic_id]`).
   * *Task:* Implement a NIR lowering pass that converts dynamic descriptor indexing into direct 64-bit GPU memory loads (mirroring Turnip's `tu_descriptor_set.c` approach) or generate dynamic looping PDS programs. Required for modern PC titles (Winlator / DXVK) and advanced Switch games.
+  * *Status note (2026-11-12):* An attempt to enable these features was **reverted**. It flipped every `shader*ArrayNonUniformIndexing` / `descriptorBinding*UpdateAfterBind` / `runtimeDescriptorArray` flag to `true` while leaving `descriptorIndexing = false` (an invalid Vulkan feature combination), and the accompanying `lower_load_vulkan_descriptor` "bindless" branch was a no-op (`if`/`else` emitted identical code). Nothing in the driver can fetch a descriptor through a runtime array index yet, so the flags must stay off until the lowering exists.
 - [ ] **M20: 64-bit Integer & 8-bit Storage Lowering (`shaderInt64`, `storageBuffer8BitAccess`)**
   * *Context:* PowerVR ALUs are 32-bit/16-bit. Vendor driver emulates Int64 via register pairs (low/high) and carry/borrow ALU flags.
   * *Task:* Hook `nir_lower_int64` and `nir_lower_bit_size` in the PCO compiler backend to enable 64-bit integer arithmetic and 8-bit storage buffer packing/unpacking.
-- [ ] **M21: Multi-Viewport State Routing (`multiViewport`)**
-  * *Context:* Hardware Primitive Processing Pipe (PPP) supports multiple viewports, but Mesa currently hardcodes `PVR_MAX_VIEWPORTS = 1`.
-  * *Task:* Expand viewport tracking structures in `pvr_cmd_buffer.c` and populate PPP multi-viewport state registers.
+- [X] **M21: Multi-Viewport State Routing (`multiViewport`) [HOST-VALIDATED]**
+  * *Context:* The vendor driver reports `maxViewports = 16.0` and `multiViewport = 1.0` on this device. Mesa hardcoded `PVR_MAX_VIEWPORTS = 1` and advertised `multiViewport = false`.
+  * *Implementation:* `has_multiviewport` device-feature bit (BXM-8-256 profile) declared in [`pvr_device_info.h`](research/mesa-src/src/imagination/common/pvr_device_info.h) and consumed by `.multiViewport = PVR_HAS_FEATURE(dev_info, multiviewport)`; `.maxViewports = PVR_MAX_VIEWPORTS` (16); `PVR_MAX_VIEWPORTS = 16U`. The PPP viewport emission already walked every viewport, but the ISP scissor / TA region clip still asserted a single viewport — it now derives one conservative rectangle from the union of all (`viewport[i]`, `scissor[min(i, scissor_count-1)]`) overlaps in [`pvr_arch_cmd_buffer.c`](research/mesa-src/src/imagination/vulkan/pvr_arch_cmd_buffer.c).
+  * *Verification:* [`test_multiviewport_wiring.py`](test_multiviewport_wiring.py) (9 checks, mutation-probed) plus a clean AArch64 cross-link. Multi-viewport rendering and its effect on region-clip culling are unverified on silicon.
 - [ ] **M22: Geometry & Tessellation Pipeline Emulation (Long-Term)**
   * *Context:* PowerVR TBDR architecture lacks fixed-function geometry/tessellation hardware units. The vendor driver emulates GS and Tessellation by compiling them into multi-pass compute-like vertex streaming passes via intermediate Parameter Buffers (PB).
   * *Task:* Design intermediate PB stream generation in PCO to support `VK_SHADER_STAGE_GEOMETRY_BIT` and `VK_SHADER_STAGE_TESSELLATION_*`.
@@ -404,5 +406,6 @@ aarch64-linux-gnu-readelf -d \
    * *M18 (Depth Clamping):* **COMPLETE (host-validated).** `clip_mode` and the ISP `isp_position_depth_clamp_z` bit are driven by one predicate; gate is `test_depth_clamp_wiring.py`.
    * *M19 (Descriptor Indexing):* Port Turnip-like indirect descriptor buffer lowering to NIR to unlock modern Winlator/DXVK games.
    * *M20 (Int64 / Int8):* Enable `nir_lower_int64` and `nir_lower_bit_size` in the PCO backend compiler.
+   * *M21 (Multi-Viewport):* **COMPLETE (host-validated).** `multiViewport` is gated on `has_multiviewport`, `maxViewports = 16`, and the ISP scissor/region clip uses the union of every viewport overlap; gate is `test_multiviewport_wiring.py`.
 3. **Physical Device Testing Freeze:**
    * **STRICT SAFETY CONSTRAINT:** Do NOT attempt physical testing on the device until offline DRM-shim and pipeline compilation are fully validated and user authorization is provided.

@@ -18,7 +18,10 @@ Designed to enable gaming and emulation on Android without requiring root, kerne
 ### Current verified status
 * **M11 host-only validation:** complete and verified via the offline mock bridge and DRM-shim lifecycle harness in [`tests/test_drm_shim_mock.c`](tests/test_drm_shim_mock.c).
 * **M11 ABI gate:** the DDK 25.1 mock bridge suite in [`tests/test_bridge_v25_mock.c`](tests/test_bridge_v25_mock.c) passed with fresh output.
-* **Safety policy:** physical device testing has been authorized following user confirmation and Milestone 11 offline validation verification
+* **M17 native ASTC:** 28 format entries + 14 border colours, advertised from the device `has_astc` bit; gate `test_astc_format_coverage.py` (156 checks).
+* **M18 depth clamping:** `clip_mode` and the ISP clamp bit derived from one predicate; gate `test_depth_clamp_wiring.py` (19 checks).
+* **M21 multi-viewport:** `multiViewport` gated on the device feature bit, `maxViewports = 16`, ISP scissor / TA region clip derived from the union of all viewport overlaps; gate `test_multiviewport_wiring.py` (9 checks).
+* **Safety policy:** physical device testing has been authorized following user confirmation and Milestone 11 offline validation verification. Every milestone above is **host-validated only** — none of it has been exercised on silicon yet.
 
 ### Rework documentation
 The formal architecture rework record is available in [VOLCANIC_REWORK_DOCUMENTATION.md](VOLCANIC_REWORK_DOCUMENTATION.md). It explains the Volcanic-first correction, the verified host-side engineering facts, and the architecture-sensitive work still being reworked.
@@ -36,7 +39,7 @@ The formal architecture rework record is available in [VOLCANIC_REWORK_DOCUMENTA
 | **Vendor Device ID**| `0x35010101` (Vendor ID: `0x1010`) | Extracted from `vulkan.mtk.so` |
 | **Stock Kernel Stack**| Imagination DDK `25.1@6715691` (`pvrsrvkm.ko`) | Kernel disassembly |
 | **Memory Topology** | B-Series 16-Heap Architecture (128 GB `"General"` Heap) | Runtime hardware discovery |
-| **Driver Package** | `libvulkan_powervr_mesa.so` (12 MB ELF64) | Built with Android NDK r28 (API 34) |
+| **Driver Package** | `libvulkan_powervr_mesa.so` (≈7 MB ELF64, unstripped) | Built with Android NDK r28 (API 34) |
 
 ---
 
@@ -163,7 +166,7 @@ Physical device testing is **not** cancelled, but gated behind strict unfreeze c
 
 ## Feature Support & Roadmap (Things to Do)
 
-This release (`v0.1.0-alpha`) focuses on DDK 25.1 kernel ABI alignment, dual-loader export models, and zero non-Bionic runtime dependencies. It advertises **Vulkan 1.2** with key capabilities and roadmap items:
+This release (`v0.2.0-alpha`) focuses on DDK 25.1 kernel ABI alignment, dual-loader export models, zero non-Bionic runtime dependencies, and a first set of Switch/3DS emulation features. It advertises **Vulkan 1.2** with key capabilities and roadmap items:
 
 | Capability | Status | Implementation Notes |
 | :--- | :---: | :--- |
@@ -173,8 +176,9 @@ This release (`v0.1.0-alpha`) focuses on DDK 25.1 kernel ABI alignment, dual-loa
 | **Timeline Semaphores** | ✅ Supported | Native timeline semaphore sync (`VK_KHR_timeline_semaphore`) |
 | **ASTC Textures** | ✅ Supported (M17) | 14 block sizes × UNORM/sRGB mapped in `pvr_arch_formats.c`; gated on the device `has_astc` feature. Validate with `python3 test_astc_format_coverage.py` |
 | **Depth Clamping** | ✅ Supported (M18) | `TA_OUTPUT_SEL.isp_position_depth_clamp_z` + `clip_mode` driven by one predicate; gated by `test_depth_clamp_wiring.py` |
-| **Descriptor Indexing** | ⏳ **Planned (M19)** | Pending NIR indirect descriptor load lowering for bindless resources |
-| **64-bit Integer (`Int64`)** | ⏳ **Planned (M20)** | Pending register-pair ALU lowering (`nir_lower_int64`) in PCO compiler |
+| **Multi-Viewport** | ✅ Supported (M21) | `multiViewport` gated on `has_multiviewport`, `maxViewports = 16`; ISP scissor + region clip use the union of all viewport overlaps. Validate with `python3 test_multiviewport_wiring.py` |
+| **Descriptor Indexing** | ⏳ **Not advertised (M19)** | Blocked: descriptors are uploaded into USC shared registers by a per-layout PDS program, so a runtime array index cannot select a descriptor. Enabling the flags without a descriptor-memory lowering would advertise a feature the driver cannot execute |
+| **64-bit Integer (`Int64`)** | ⏳ **Planned (M20)** | `nir_lower_int64` already runs in the PCO opt loop; advert isation still needs 64-bit IO handling and a gate |
 | **Geometry & Tessellation** | ⏳ **Planned (M22)** | Requires multi-pass Parameter Buffer streaming emulation on TBDR |
 | **BC (DXTC) Textures** | ❌ **No HW Silicon** | Hardware lacks BC units; requires compute shader decompression for Winlator |
 | **64-bit Float (`FP64`)** | ❌ **No HW Silicon** | Hardware ALUs are strictly 32-bit/16-bit; no double-precision units |
@@ -183,12 +187,13 @@ This release (`v0.1.0-alpha`) focuses on DDK 25.1 kernel ABI alignment, dual-loa
 
 ## Repository Map
 
-* **`patches/`**: 5 clean, upstream-compatible Git patches modifying Mesa:
+* **`patches/`**: clean, upstream-compatible Git patches modifying Mesa:
   * `0001`: BVNC `35.3.408.101` device profile registration.
   * `0002`: DDK 25.1 bridge ABI and B-Series 16-heap memory topology.
   * `0003`: PMR allocation (Func 8) and unreference (Func 7) ABI correction.
   * `0004`: Dual HAL + ICD symbol exports and static `libdrm` linkage.
   * `0005`: PCO compute workgroup (512 invocations) and push constant (256B) limits.
+  * `0006`: Native ASTC LDR texture support (M17).
 * **`tools/`**: Build automation, cross-file generators, packager scripts, and setup utilities.
 * **`tests/`**: Host-side DDK 25.1 mock kernel regression suite.
 * **`device-info/`**: Open device properties, `vkjson` capability dumps, and service dumps from physical hardware.

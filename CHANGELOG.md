@@ -72,6 +72,26 @@ Geometry crossing the near/far planes is now clamped to the depth range instead 
 
 ---
 
+### Milestone 23 (stage 1): BC texture emulation decode kernel
+
+The BXM-8-256 TPU has no BC decompression unit (`textureCompressionBC = 0.0` on the vendor driver), so BC textures have to be decoded in software. This lands the decode kernel and its tests; the image path is not wired yet, so BC stays unadvertised.
+
+### Added
+
+* **`pvr_bc_emulation.c` / `.h`:** maps all 16 BC VkFormats to an uncompressed target — BC1/BC2/BC3/BC7 → RGBA8 (UNORM or SRGB), BC4/BC5 → RGBA8 with channel expansion, BC6H → RGBA16F so HDR does not clip — reports decoded level sizes, and decodes a mip level block-by-block with Mesa's `util/format` decoders. Built into the driver.
+* **`tests/test_bc_decode.c` + `tests/build_test_bc_decode.sh`:** host unit test that decodes real blocks and compares exact texels (30 checks).
+
+### Verification
+
+| Check | Result |
+| :--- | :--- |
+| `tests/build_test_bc_decode.sh && tests/test_bc_decode` | 30 checks, 0 failures |
+| `ninja -C build-android src/imagination/vulkan/libvulkan_powervr_mesa.so` | Links, 7,002,392 bytes |
+
+> `textureCompressionBC` remains `false`. This is stage 1 of M23: a verified decode kernel, not a working BC feature. Advertising it before the image path exists would promise all BC formats and hand applications undecoded texture memory.
+
+---
+
 ### Milestone 20: 64-bit integers (host-validated)
 
 `shaderInt64` is now advertised and implemented. The USC has no 64-bit ALU and no 64-bit memory instruction, so both halves are lowered to 32-bit pairs.

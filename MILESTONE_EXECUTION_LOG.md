@@ -444,6 +444,40 @@ L1: 8/8, L2: 10/10, both non-vacuous. No product code changed; only the assertio
 
 ---
 
+### Milestone M23 (stage 1) — BC texture emulation decode kernel
+
+#### Objective
+Move BC (DXTC) texture support forward without advertising a feature the driver cannot execute. The device has no BC decompression unit (`textureCompressionBC = 0.0`), and unlike M19/M22 there is no vendor implementation to port, so BC must be decoded in software.
+
+#### Decision log
+- Decision: build and unit-test the decode kernel first, wire the image path second.
+- Rationale: the kernel's output can be checked exactly on the build host, while the image plumbing cannot be checked at all without silicon. Landing the verifiable half first means the next stage starts from a known-good decoder instead of debugging a decoder through a game.
+- Decision: decode on the CPU, not in a compute shader.
+- Rationale: compute execution itself is still unvalidated on this driver (M16), and texture upload happens before the first frame — the worst possible place for an untested dispatch.
+- Decision: BC6H decodes to RGBA16F rather than RGBA8.
+- Rationale: BC6H is HDR; 8 bits per channel would clip the range the format exists to carry. BC4/BC5 stay RGBA8 because the util decoders already expand the single/double channels.
+- Decision: **do not** advertise `textureCompressionBC` yet.
+- Rationale: advertisement promises all BC formats, and a BC image created without decoding on upload renders garbage instead of failing cleanly. A wrong texture is harder to diagnose than a clean `VK_ERROR_FORMAT_NOT_SUPPORTED`.
+
+#### Implementation
+1. `src/imagination/vulkan/pvr_bc_emulation.h/.c`: format table for all 16 BC VkFormats (target format, block bytes, target bits per pixel), `pvr_bc_format_info()`, `pvr_bc_format_is_compressed()`, `pvr_bc_decoded_level_size()` and `pvr_bc_decode_level()` dispatching to the `util/format` decoders (dxt1/3/5 incl. sRGB variants, rgtc1/2, bptc unorm/srgb/float/ufloat).
+2. `src/imagination/vulkan/meson.build`: `pvr_bc_emulation.c` added to the driver sources so it is compiled for AArch64 and cannot rot.
+3. `tests/test_bc_decode.c` + `tests/build_test_bc_decode.sh`: host unit test linking the real `util/format` sources from the tree.
+
+#### Validation
+```bash
+tests/build_test_bc_decode.sh && tests/test_bc_decode
+# -> 30 passed, 0 failed
+ninja -C build-android src/imagination/vulkan/libvulkan_powervr_mesa.so
+# -> links, 7,002,392 bytes
+```
+The test is not vacuous: it asserts exact texels (a BC1 block with `c0 = 0xF800` must decode to 255,0,0,255 at every pixel; a BC3 block must keep alpha 255; a BC4 endpoint 255 must expand to R=255 with G=B=0), plus format mapping, decoded sizes and a partial 2x2 level.
+
+#### Outcome
+Stage 1 of M23 is done and verified: a decode kernel with real tests, compiled into the driver, and **not** advertised. Remaining for M23: emulated internal format at image create, decode at buffer→image copy, image-view translation from BC to the emulated format, UNORM/SRGB class separation, and coverage for the copy/blit paths not handled. The memory trade-off must also be decided (RGBA8 is 8x the footprint of BC1; ASTC would be 2x but needs a BC→ASTC encoder that Mesa does not ship).
+
+---
+
 ### Milestone M20 — 64-bit integers (`shaderInt64`)
 
 #### Objective

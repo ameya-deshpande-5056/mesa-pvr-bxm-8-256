@@ -103,6 +103,7 @@ python3 /home/ameya/bxm-research/tools/package_driver.py
 ```bash
 python3 /home/ameya/bxm-research/test_multiviewport_wiring.py    # M21 multi-viewport feature/limit/clip wiring
 python3 /home/ameya/bxm-research/test_int64_lowering.py          # M20 shaderInt64 lowering wiring
+/home/ameya/bxm-research/tests/build_test_bc_decode.sh && /home/ameya/bxm-research/tests/test_bc_decode   # M23 BC decode kernel (30 checks)
 python3 /home/ameya/bxm-research/test_astc_format_coverage.py   # M17 ASTC table consistency
 python3 /home/ameya/bxm-research/test_depth_clamp_wiring.py      # M18 clamp/clip bit contract
 python3 /home/ameya/bxm-research/test_volcanic_mock.py           # L1: XML / header / BVNC / meson wiring

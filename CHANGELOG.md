@@ -72,6 +72,36 @@ Geometry crossing the near/far planes is now clamped to the depth range instead 
 
 ---
 
+### Milestone 20: 64-bit integers (host-validated)
+
+`shaderInt64` is now advertised and implemented. The USC has no 64-bit ALU and no 64-bit memory instruction, so both halves are lowered to 32-bit pairs.
+
+### Added
+
+* **`pco_mem_access_size_align()` (`pco_nir.c`):** caps every memory access at 32 bits and splits wider ones into 32-bit components, honouring 1-byte and 2-byte alignment (a narrow or unaligned access cannot be widened). Wired through `nir_lower_mem_access_bit_sizes` over `nir_var_mem_ubo`, `ssbo`, `global`, `constant`, `push_const` and `shared`.
+* **`test_int64_lowering.py`:** offline gate over the ALU options, the memory split callback, the pass ordering, the advertisement and the vendor's `shaderInt64` evidence (21 checks).
+
+### Changed
+
+* **Pass ordering:** the memory split runs immediately before `nir_lower_int64` in the PCO optimization loop, so the two halves replacing a 64-bit load or store are already 32-bit when the ALU lowering consumes them.
+* **`.shaderInt64`** is `true`. `shaderFloat64` stays `false` (no double-precision units) and `shaderBufferInt64Atomics` / `shaderSharedInt64Atomics` stay `false` (no native 64-bit atomics).
+
+### Notes
+
+* `lower_int64_options = ~0U` was already present but **inert**: `nir_lower_int64()` is a no-op with an empty mask, and the driver never hit it because the feature was disabled. It is now exercised by the advertised feature.
+* `storageBuffer8BitAccess` / `shaderInt8` remain off. The vendor driver reports both as `1.0`, so this is a Mesa gap, not a hardware one — PCO has no `nir_lower_bit_size` hook.
+
+### Verification
+
+| Check | Result |
+| :--- | :--- |
+| `ninja -C build-android src/imagination/vulkan/libvulkan_powervr_mesa.so` | Links |
+| `python3 test_int64_lowering.py` | 21 checks, 0 failures (mutation-probed twice) |
+
+> No 64-bit shader has been compiled and run on silicon. This milestone is validated at compiler-wiring and build level only.
+
+---
+
 ### Milestone 21: Multi-Viewport (host-validated)
 
 Applications can now bind more than one viewport per draw. The vendor driver already reports `maxViewports = 16.0` / `multiViewport = 1.0` on this device; Mesa was hardcoding a single viewport.

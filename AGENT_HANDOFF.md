@@ -102,6 +102,7 @@ python3 /home/ameya/bxm-research/tools/package_driver.py
 ### Run the Offline Feature Gates
 ```bash
 python3 /home/ameya/bxm-research/test_multiviewport_wiring.py    # M21 multi-viewport feature/limit/clip wiring
+python3 /home/ameya/bxm-research/test_int64_lowering.py          # M20 shaderInt64 lowering wiring
 python3 /home/ameya/bxm-research/test_astc_format_coverage.py   # M17 ASTC table consistency
 python3 /home/ameya/bxm-research/test_depth_clamp_wiring.py      # M18 clamp/clip bit contract
 python3 /home/ameya/bxm-research/test_volcanic_mock.py           # L1: XML / header / BVNC / meson wiring
@@ -128,9 +129,11 @@ gcc -Wall -Wextra -O2 /home/ameya/bxm-research/tests/test_drm_shim_mock.c -o /ho
   * **ISP depth clamping:** `pvr_depth_clamp_enabled()` drives both `TA_STATE_PPP_CTRL.clip_mode` and `TA_OUTPUT_SEL.isp_position_depth_clamp_z`; `.depthClamp = true`. Gate: `python3 test_depth_clamp_wiring.py`. Silicon behaviour unverified, and the `VK_EXT_depth_clamp_zero_one` clamp range still needs on-silicon confirmation (see the M18 entry in `MILESTONE_EXECUTION_LOG.md`).
 * **Milestone 21 [COMPLETE / HOST-VALIDATED]:**
   * **Multi-viewport:** `has_multiviewport` device bit declared in `pvr_device_info.h` and consumed by `.multiViewport = PVR_HAS_FEATURE(dev_info, multiviewport)`; `.maxViewports = PVR_MAX_VIEWPORTS` (16). The ISP scissor / TA region clip now uses the union of every (`viewport[i]`, `scissor[min(i, count-1)]`) overlap instead of asserting a single viewport. Gate: `python3 test_multiviewport_wiring.py` (9 checks, mutation-probed). On-silicon rendering unverified.
-* **Driver Feature Expansion Roadmap [PLANNED / THINGS TO DO]:**
-  * **M19 (Descriptor Indexing / Bindless):** Implement NIR indirect descriptor load lowering to global memory (Turnip style) to support modern Winlator/DXVK games. **Do not just flip the feature flags** — a 2026-11-12 attempt did that and was reverted (invalid Vulkan feature combination, no-op lowering).
-  * **M20 (Int64 / Int8 Math):** Hook `nir_lower_int64` (already called in `pco_nir.c`) and `nir_lower_bit_size` in PCO backend compiler, then gate `shaderInt64` / `storageBuffer8BitAccess`.
+* **Milestone 20 [COMPLETE / HOST-VALIDATED]:**
+  * **`shaderInt64`:** 64-bit ALU lowered to 32-bit pairs (`lower_int64_options = ~0U`) and 64-bit loads/stores split to 32-bit components by a new `pco_mem_access_size_align()` callback used with `nir_lower_mem_access_bit_sizes`. Gate: `python3 test_int64_lowering.py` (21 checks, mutation-probed). No 64-bit atomics; **Int8 / 8-bit storage is still off** (no `nir_lower_bit_size` hook in PCO).
+* **Driver Feature Expansion Roadmap [PLANNED / THINGS TO DO]:** read [`MILESTONE_M19_M22_PLAN.md`](MILESTONE_M19_M22_PLAN.md) before touching either:
+  * **M19 (Descriptor Indexing / Bindless):** blocked in Mesa, **not** in silicon — the vendor reports the whole descriptor-indexing set as `1.0`. The driver uploads descriptors into USC shared registers (uniform index only), so a per-lane index has nowhere to go. **Do not just flip the feature flags** — a 2026-11-12 attempt did that and was reverted (invalid Vulkan feature combination, no-op lowering).
+  * **M20 remainder (Int8 / 8-bit storage):** add a `nir_lower_bit_size` hook in PCO, then enable `storageBuffer8BitAccess` / `shaderInt8` (vendor reports both as `1.0`).
   * **M22 (Geometry & Tessellation):** Implement intermediate Parameter Buffer (PB) streaming passes in PCO (emulating GS/Tess on TBDR).
   * **M23 (BC Texture Decompression):** Hardware lacks BC units (`0.0`); implement compute shader decompression for desktop textures in Winlator.
 * **Milestones 13–16: Physical Device Validation [AUTHORIZED / GATED]:**

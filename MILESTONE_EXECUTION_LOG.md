@@ -444,6 +444,44 @@ L1: 8/8, L2: 10/10, both non-vacuous. No product code changed; only the assertio
 
 ---
 
+### Milestone M20 — 64-bit integers (`shaderInt64`)
+
+#### Objective
+Advertise and implement `VkPhysicalDeviceFeatures::shaderInt64`. The vendor driver reports `shaderInt64 = 1.0` on this device, and the USC has no 64-bit ALU and no 64-bit memory instruction, so the feature must be emulated as 32-bit pairs.
+
+#### Investigation
+- `nir_options.lower_int64_options` was already `~0U`, and `nir_lower_int64` already ran in `pco_nir_opt()`. So the ALU half looked done.
+- It was not: `nir_lower_int64` consults `shader->options->lower_int64_options`, and with the feature disabled nothing ever generated 64-bit NIR to lower. The call was live but unexercised.
+- The memory half was genuinely missing: a 64-bit UBO/SSBO/global/push-constant/shared access would reach the backend as a 64-bit access, and `should_vectorize_mem_cb()` explicitly refuses `bit_size > 32`, which shows the intended model is ≤32-bit accesses.
+
+#### Decision log
+- Decision: lower 64-bit memory accesses with `nir_lower_mem_access_bit_sizes` rather than teaching the USC path to handle 64-bit accesses.
+- Rationale: the hardware has no 64-bit load/store. Splitting is the same shape as ir3's approach and keeps the backend's existing 32-bit assumption intact.
+- Decision: run the split **before** `nir_lower_int64`.
+- Rationale: the ALU lowering produces pack/unpack pairs around the load; if the load is still 64-bit when that runs, the pair wraps a 64-bit access that must then be split anyway. Splitting first makes both halves 32-bit at the same point.
+- Decision: copy ir3's alignment rules (8-bit for 1-byte alignment, 16-bit for 2-byte, otherwise ≤32-bit).
+- Rationale: an unaligned access cannot be widened, and a 64-bit value at 8-byte alignment should become two 32-bit accesses, not eight 8-bit ones.
+- Decision: keep 64-bit **atomics** off.
+- Rationale: `shaderBufferInt64Atomics` needs native 64-bit atomics in memory; a pair of 32-bit atomics is not equivalent for concurrent access.
+
+#### Implementation
+1. `pco_nir.c`: `pco_mem_access_size_align()` callback — caps width at 32 bits, honours alignment, returns `num_components`/`bit_size`/`align`/`shift`.
+2. `pco_nir.c`: `nir_lower_mem_access_bit_sizes` pass over UBO, SSBO, global, constant, push-constant and shared modes, placed directly before `nir_lower_int64`.
+3. `pvr_physical_device.c`: `.shaderInt64 = true` with a comment naming both halves of the lowering.
+4. `test_int64_lowering.py`: 21-check gate over the ALU options, the callback, the mode list, the pass ordering (inside `pco_nir_opt`, before `nir_lower_int64`), the advertisements that must stay false, and the vendor `shaderInt64` evidence.
+
+#### Validation
+```bash
+ninja -C build-android src/imagination/vulkan/libvulkan_powervr_mesa.so   # links
+python3 test_int64_lowering.py                                            # 21/21
+```
+Mutation probes: withdrawing `.shaderInt64` and removing the 32-bit cap each produced exactly one failure; the sources were restored byte-identically (`diff -q`) and the gate returned to 21/21.
+
+#### Outcome
+M20 (`shaderInt64`): implemented and validated **host-only**. Not compiled into a shader that was actually executed, and not run on silicon. The remaining half of M20 — `storageBuffer8BitAccess` / `shaderInt8`, which the vendor also reports as supported — is **not** done: PCO has no `nir_lower_bit_size` hook, so 8-bit ALU could reach a backend that only has 16/32-bit ops. It stays off.
+
+---
+
 ### Milestone M21 — Multi-Viewport (`multiViewport`)
 
 #### Objective

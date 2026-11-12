@@ -177,9 +177,9 @@ This release (`v0.2.0-alpha`) focuses on DDK 25.1 kernel ABI alignment, dual-loa
 | **ASTC Textures** | ✅ Supported (M17) | 14 block sizes × UNORM/sRGB mapped in `pvr_arch_formats.c`; gated on the device `has_astc` feature. Validate with `python3 test_astc_format_coverage.py` |
 | **Depth Clamping** | ✅ Supported (M18) | `TA_OUTPUT_SEL.isp_position_depth_clamp_z` + `clip_mode` driven by one predicate; gated by `test_depth_clamp_wiring.py` |
 | **Multi-Viewport** | ✅ Supported (M21) | `multiViewport` gated on `has_multiviewport`, `maxViewports = 16`; ISP scissor + region clip use the union of all viewport overlaps. Validate with `python3 test_multiviewport_wiring.py` |
-| **Descriptor Indexing** | ⏳ **Not advertised (M19)** | Blocked: descriptors are uploaded into USC shared registers by a per-layout PDS program, so a runtime array index cannot select a descriptor. Enabling the flags without a descriptor-memory lowering would advertise a feature the driver cannot execute |
-| **64-bit Integer (`Int64`)** | ⏳ **Planned (M20)** | `nir_lower_int64` already runs in the PCO opt loop; advert isation still needs 64-bit IO handling and a gate |
-| **Geometry & Tessellation** | ⏳ **Planned (M22)** | Requires multi-pass Parameter Buffer streaming emulation on TBDR |
+| **Descriptor Indexing** | ⏳ **Not advertised (M19)** | Blocked in Mesa, not in silicon: the vendor reports the whole descriptor-indexing set as supported, but this driver uploads descriptors into USC shared registers (uniform index only). See `MILESTONE_M19_M22_PLAN.md` |
+| **64-bit Integer (`Int64`)** | ✅ Supported (M20) | 64-bit ALU lowered to 32-bit pairs and 64-bit loads/stores split to 32-bit components. Validate with `python3 test_int64_lowering.py`. No 64-bit atomics |
+| **Geometry & Tessellation** | ⏳ **Planned (M22)** | Requires multi-pass Parameter Buffer streaming emulation; PCO has none yet. Vendor reports both stages supported, so it is a port/study problem |
 | **BC (DXTC) Textures** | ❌ **No HW Silicon** | Hardware lacks BC units; requires compute shader decompression for Winlator |
 | **64-bit Float (`FP64`)** | ❌ **No HW Silicon** | Hardware ALUs are strictly 32-bit/16-bit; no double-precision units |
 

@@ -128,26 +128,40 @@ def test_5_device_id():
     return all_pass
 
 def test_6_meson_configured():
-    """Test: meson.build is properly configured (volcanic subdir + gen_pack_header.py)."""
+    """Test: meson.build is properly configured (volcanic subdir + gen_pack_header.py).
+
+    The generator is referenced from the per-arch meson.build files
+    (csbgen/rogue/meson.build and csbgen/volcanic/meson.build), while
+    csbgen/meson.build only pulls in the subdirs. Checking csbgen/meson.build
+    for gen_pack_header.py can therefore never pass; the checks are applied to
+    the files that actually own each bit of wiring.
+    """
     print("\nTEST 6: meson.build configuration...")
-    path = os.path.join(MESA_SRC, "src/imagination/csbgen/meson.build")
-    if not os.path.exists(path):
-        print("  FAIL: meson.build not found")
-        return False
-    
-    with open(path, 'r') as f:
-        content = f.read()
-    
-    # Check key elements
+
+    def read_build(path, label):
+        if not os.path.exists(path):
+            print(f"  FAIL: {label} not found at {path}")
+            return None
+        with open(path, 'r') as f:
+            return f.read()
+
+    csbgen_dir = os.path.join(MESA_SRC, "src/imagination/csbgen")
+    csbgen_meson = read_build(os.path.join(csbgen_dir, "meson.build"), "csbgen/meson.build")
+    rogue_meson = read_build(os.path.join(csbgen_dir, "rogue", "meson.build"), "csbgen/rogue/meson.build")
+    volcanic_meson = read_build(os.path.join(csbgen_dir, "volcanic", "meson.build"), "csbgen/volcanic/meson.build")
+
+    # (content, needle, description)
     checks = [
-        ("subdir('rogue')", "rogue subdir referenced"),
-        ("subdir('volcanic')", "volcanic subdir referenced"),
-        ("gen_pack_header.py", "gen_pack_header.py referenced"),
+        (csbgen_meson, "subdir('rogue')", "rogue subdir referenced in csbgen/meson.build"),
+        (csbgen_meson, "subdir('volcanic')", "volcanic subdir referenced in csbgen/meson.build"),
+        (rogue_meson, "gen_pack_header.py", "gen_pack_header.py referenced in rogue/meson.build"),
+        (volcanic_meson, "gen_pack_header.py", "gen_pack_header.py referenced in volcanic/meson.build"),
+        (volcanic_meson, "texstate.xml", "texstate.xml generated for volcanic"),
     ]
-    
+
     all_pass = True
-    for check_text, desc in checks:
-        if check_text in content:
+    for content, check_text, desc in checks:
+        if content is not None and check_text in content:
             print(f"  PASS: {desc}")
         else:
             print(f"  FAIL: {desc} not found")

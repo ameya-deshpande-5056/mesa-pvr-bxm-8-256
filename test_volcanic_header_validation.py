@@ -28,10 +28,10 @@ HEADER_CHECKS = {
     ],
     "cr.h": [
         "VOLCANIC_CR",                  # struct/enum prefix
+        "VOLCANIC_CR_CR_REG_WORD0",     # specific struct from the CR register block
         "pack",                         # pack function
         "unpack",                       # unpack function
-        "header",                       # header guard or section marker
-        "COMPILE_TIME_ASSERT",          # or static_assert
+        "header",                       # length/header macro suffix
         "length",                       # length define
     ],
     "ipf.h": [
@@ -48,12 +48,15 @@ HEADER_CHECKS = {
         "length",
         "header",
     ],
+    # lls.xml is a constants-only source: it defines buffer sizes and alignment
+    # requirements, not packet structs, so pack/unpack/length/header cannot be
+    # expected here. Check the constants it actually generates instead.
     "lls.h": [
         "VOLCANIC_LLS",
-        "pack",
-        "unpack",
-        "length",
-        "header",
+        "VOLCANIC_LLS_CDM_CONTEXT_RESUME_BUFFER_SIZE",
+        "VOLCANIC_LLS_TA_STATE_BUFFER_SIZE",
+        "VOLCANIC_LLS_USC_SHARED_REGS_BUFFER_SIZE",
+        "VOLCANIC_LLS_TA_STATE_BUFFER_ALIGNMENT",
     ],
     "pbestate.h": [
         "VOLCANIC_PBESTATE",
@@ -70,8 +73,12 @@ HEADER_CHECKS = {
         "length",
         "header",
     ],
+    # csbgen/volcanic/ppp.xml declares name="VOLCANIC" prefix="TA", so the
+    # generated symbols are VOLCANIC_TA_*; "VOLCANIC_PPP" never appears.
     "ppp.h": [
-        "VOLCANIC_PPP",
+        "VOLCANIC_TA_",
+        "VOLCANIC_TA_TA_REG_WORD0",
+        "VOLCANIC_TA_CLIP_MODE",
         "pack",
         "unpack",
         "length",

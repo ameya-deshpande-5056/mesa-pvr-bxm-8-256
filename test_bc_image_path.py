@@ -115,7 +115,26 @@ def main():
         "BC6H must target RGBA32F with target_bpp 128",
     )
 
-    # 7. The format table and its VkFormat mapping agree.
+    # 7. Operations the emulated image cannot represent are refused loudly
+    # rather than moving uncompressed bytes under a compressed format.
+    for op in ("vkCmdBlitImage(src)", "vkCmdBlitImage(dst)",
+               "vkCmdCopyImage(src)", "vkCmdCopyImage(dst)",
+               "vkCmdCopyImageToBuffer", "vkCmdClearColorImage"):
+        check(
+            f"{op} is refused on BC images",
+            f'pvr_bc_image_op_supported(.*"{op}")' in blit_c
+            or f'"{op}"' in blit_c,
+            f"{op} must call pvr_bc_image_op_supported",
+        )
+
+    # 8. Views must name a format the emulated image can actually serve.
+    check(
+        "view formats are validated",
+        "pvr_bc_view_format_is_compatible(&image->bc, pCreateInfo->format)"
+        in arch_image_c,
+    )
+
+    # 9. The format table and its VkFormat mapping agree.
     for target, vk_format in (
         ("PVR_BC_TARGET_RGBA8_UNORM", "VK_FORMAT_R8G8B8A8_UNORM"),
         ("PVR_BC_TARGET_RGBA8_SRGB", "VK_FORMAT_R8G8B8A8_SRGB"),

@@ -569,6 +569,37 @@ All of it was reverted, and the supporting `test_descriptor_indexing.py` (which 
 
 ---
 
+## 2026-11-12 — M23 stages 2-3, device harness, M19 stage 1
+
+### M23: the image path
+
+- Create-time substitution: a BC `VkImageCreateInfo` is rewritten to the emulated format before `vk_image_create`, so extent, mip layout and texstate all describe what the image stores. With the feature off, BC create returns `VK_ERROR_FORMAT_NOT_SUPPORTED` (spec-required); `PVR_BC_EMULATION=1` reaches the path for bring-up.
+- Views: created with the emulated format, and `pvr_bc_view_format_is_compatible()` rejects a view naming a format the image cannot serve (different block layout, or UNORM vs sRGB class). BC1 RGB/RGBA equivalence is implemented because Vulkan requires it.
+- Upload: `vkCmdCopyBufferToImage` decodes each region into a linear staging buffer (the destination is twiddled, so only the transfer engine can write it) and lets the ordinary buffer→image path write it out. Every skip condition now names itself in a log line: non-emulated destination, unmapped source, non-color aspect, block-misaligned offset, `depth != 1`, misaligned row length/height, region past the buffer.
+- Refused loudly instead of silently: `vkCmdBlitImage`, `vkCmdCopyImage`, `vkCmdCopyImageToBuffer`, `vkCmdClearColorImage` on a BC image.
+- BC6H sizing: the bptc decoders write four 32-bit floats per texel, but the target was declared RGBA16F (64 bpp), so everything sized by `pvr_bc_decoded_level_size()` was half the needed size. Target is now RGBA32F (128 bpp). The old test asserted the wrong number, so it could not catch this; it now asserts 128 bpp and checks a canary past the end of a correctly sized buffer.
+- Verification: `tests/test_bc_decode` 45/45 (mutation to 64 bpp → 3 failures, including the canary), `test_bc_image_path.py` 22/22 (mutations to the advertised flag and the view translation both fail), clean AArch64 link. Unverified: cache/ordering between the staging upload and the transfer command.
+
+### CI gap closed
+
+`tests/build_test_bc_decode.sh` used to require the Android cross-build's generated headers, so the BC test only ran on a machine that had built the driver. It now generates `u_format_gen.h`, `u_format_pack.h`, `u_format_table.c` and `format_srgb.c` with Mesa's own scripts when no build tree is available (checked with `build-android` renamed away), and the workflow builds and runs it.
+
+### Device harness (M13/M14), host-side only
+
+`tools/device/{preflight,step2_smoke,build_smoke}.sh`, `tools/smoke/vk_enum.c` and a README. Every script refuses to run unless `PVR_DEVICE_AUTHORIZED=1`, and the refusal path was verified to run no `adb` command. `vk_enum` is a read-only equivalent of `vulkaninfo --summary`: it creates an instance, enumerates physical devices and prints name/type/versions/heaps — no images, buffers, queues or submissions, so it cannot reach the teardown path that caused the kernel Oops. Built for aarch64 with NDK r28. **Nothing in this session was executed against the phone.**
+
+### M19 stage 1 (forensics), first evidence
+
+From `binaries/libusc.so`:
+
+- Exactly one string mentions bindless: `In bindless mode the last gather4 source must be a channel select.` at VA `0x27148`.
+- Exactly one cross-reference to it, at `0x216224` (`adrp x3, 0x27000` / `add x3, x3, #0x148`). The surrounding calls all pass two strings plus a numeric id to `0x684ac`, i.e. this is the vendor compiler's diagnostic helper, not bindless-specific code.
+- That message establishes that bindless is a **compiler mode** with encoded ISA operand constraints, not a driver-side loop over PDS entries.
+- ISA flag names present: `LDGATHER4`, `LDGATHER4_C`, `LDGATHER4_PO`, `LDGATHER4_C_PO`, `GATHER4_PRECISION_WORKAROUND`, `RANGE_CHECK_NULL_DESCRIPTOR` — the last one lines up with the existing `pco_nir_lower_null_descriptors.c` approach.
+- Still unknown, and the thing that decides the Mesa-side design: how the descriptor operand is encoded in bindless mode (memory load vs indexed entry), and where the mode flag is set. Next step is to find the option/mode setter and the operand encoding; until then M19 has no code.
+
+---
+
 ## Notes on Execution
 
 This log is intentionally designed to be transparent and auditable. The working assumption is:

@@ -212,7 +212,41 @@ main(void)
       }
    }
 
-   printf("\n[7] Partial (non-4-aligned) levels\n");
+   printf("\n[7] View format compatibility\n");
+   {
+      struct pvr_bc_emulation_info bc1_rgba, bc1_rgb, bc1_rgb_srgb, bc7;
+      struct pvr_bc_emulation_info bc6h;
+
+      pvr_bc_format_info(VK_FORMAT_BC1_RGBA_UNORM_BLOCK, &bc1_rgba);
+      pvr_bc_format_info(VK_FORMAT_BC1_RGB_UNORM_BLOCK, &bc1_rgb);
+      pvr_bc_format_info(VK_FORMAT_BC1_RGB_SRGB_BLOCK, &bc1_rgb_srgb);
+      pvr_bc_format_info(VK_FORMAT_BC7_UNORM_BLOCK, &bc7);
+      pvr_bc_format_info(VK_FORMAT_BC6H_UFLOAT_BLOCK, &bc6h);
+
+      check(pvr_bc_view_format_is_compatible(&bc1_rgba,
+                                             VK_FORMAT_BC1_RGB_UNORM_BLOCK),
+            "BC1 RGB view of a BC1 RGBA image is compatible");
+      check(pvr_bc_view_format_is_compatible(&bc1_rgb,
+                                             VK_FORMAT_BC1_RGBA_UNORM_BLOCK),
+            "BC1 RGBA view of a BC1 RGB image is compatible");
+      check(!pvr_bc_view_format_is_compatible(&bc1_rgba,
+                                              VK_FORMAT_BC1_RGB_SRGB_BLOCK),
+            "BC1 sRGB view of a BC1 UNORM image is rejected");
+      check(!pvr_bc_view_format_is_compatible(&bc1_rgba,
+                                              VK_FORMAT_BC2_UNORM_BLOCK),
+            "BC2 view of a BC1 image is rejected");
+      check(!pvr_bc_view_format_is_compatible(&bc7, VK_FORMAT_BC3_UNORM_BLOCK),
+            "BC3 view of a BC7 image is rejected");
+      check(pvr_bc_view_format_is_compatible(&bc7, VK_FORMAT_R8G8B8A8_UNORM),
+            "the emulated format itself is accepted");
+      check(!pvr_bc_view_format_is_compatible(&bc7, VK_FORMAT_R8G8B8A8_SRGB),
+            "a linear format of the wrong class is rejected");
+      check(pvr_bc_view_format_is_compatible(&bc6h,
+                                             VK_FORMAT_R32G32B32A32_SFLOAT),
+            "BC6H accepts its RGBA32F emulated format");
+   }
+
+   printf("\n[8] Partial (non-4-aligned) levels\n");
    {
       /* A 2x2 mip of a BC1 image still decodes from a whole 4x4 block. */
       uint8_t block[8];

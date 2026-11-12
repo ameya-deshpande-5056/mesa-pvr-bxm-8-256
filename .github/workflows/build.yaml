@@ -38,6 +38,11 @@ jobs:
           python3 test_depth_clamp_wiring.py
           python3 test_volcanic_mock.py
           python3 test_volcanic_header_validation.py
+      - name: Build and run BC decode test
+        run: |
+          set -e
+          sh tests/build_test_bc_decode.sh
+          ./tests/test_bc_decode
       - name: Compile and run C mock tests
         run: |
           set -e

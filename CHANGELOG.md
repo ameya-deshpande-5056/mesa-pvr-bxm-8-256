@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.3.0-alpha] - 2026-11-12
+
+### Milestone 23 (stages 2-3): BC emulation in the image path
+
+The decode kernel now has callers. BC images are stored uncompressed, decoded on upload, and every path that would silently move the wrong bytes is refused with a log line. `textureCompressionBC` remains **false** — see the note at the end.
+
+### Added
+
+* **Image create substitution** (`pvr_image.c`): a BC `VkImageCreateInfo` is rewritten to the emulated VkFormat before `vk_image_create`, so extent, mip layout, texstate and every later query describe the format the image actually stores. With the feature off, BC create returns `VK_ERROR_FORMAT_NOT_SUPPORTED` as the spec requires; `PVR_BC_EMULATION=1` reaches the path for bring-up.
+* **View translation and validation** (`pvr_arch_image.c`, `pvr_bc_emulation.c`): views of a BC image are created with the emulated format, and a view naming a format the image cannot serve (wrong block layout or wrong UNORM/sRGB class) is rejected instead of sampling nonsense. `pvr_bc_view_format_is_compatible()` implements the BC1 RGB/RGBA equivalence Vulkan requires.
+* **Decode on upload** (`rogue/pvr_blit.c`): `vkCmdCopyBufferToImage` decodes each region through the kernel into a linear staging buffer, which the transfer engine then writes into the (twiddling) destination. Every skip condition logs which one fired — unmapped source, non-color aspect, block-misaligned offset, `depth != 1`, misaligned row length, region past the buffer, non-emulated destination.
+* **Unsupported operations are refused loudly**: `vkCmdBlitImage`, `vkCmdCopyImage`, `vkCmdCopyImageToBuffer` and `vkCmdClearColorImage` on a BC-emulated image log and skip, because encoding and the inverse decode do not exist.
+
+### Fixed
+
+* **BC6H sizing overrun**: the bptc decoders write four 32-bit floats per texel, but BC6H was declared as RGBA16F at 64 bpp, so every buffer sized by `pvr_bc_decoded_level_size()` was half the required size. The target is now RGBA32F at 128 bpp, matching what the kernel writes. The old test asserted the wrong size, so it could not catch the overrun; it now asserts 128 bpp and checks a canary past the end of a correctly sized buffer.
+
+### Verification
+
+| Check | Result |
+| :--- | :--- |
+| `tests/build_test_bc_decode.sh && tests/test_bc_decode` | 45 checks, 0 failures (runs in CI) |
+| `python3 test_bc_image_path.py` | 22 checks, 0 failures |
+| `ninja -C build-android src/imagination/vulkan/libvulkan_powervr_mesa.so` | Links |
+
+> `textureCompressionBC` stays `false`: no BC workload has run on the device. Advertising it promises all BC formats, and the emulated path is unverified on silicon.
+
+---
+
 ## [0.2.0-alpha] - 2026-11-12
 
 ### Milestone 17: Native ASTC LDR Textures (host-validated)

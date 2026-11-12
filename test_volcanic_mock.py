@@ -6,7 +6,6 @@ Validates all deliverables can be built/verified in a host-bound environment.
 
 import os
 import sys
-import subprocess
 import xml.etree.ElementTree as ET
 
 # Paths (derived from this file so the gate also runs from a CI checkout)
@@ -22,14 +21,6 @@ if not os.path.isdir(MESA_SRC):
 VOLCANIC_XML_DIR = os.path.join(MESA_SRC, "src/imagination/csbgen/volcanic")
 VOLCANIC_HWDEF_DIR = os.path.join(MESA_SRC, "src/imagination/include/hwdef")
 DOCS_FILE = os.path.join(REPO_ROOT, "VOLCANIC_REVERSE_ENGINEERING.md")
-
-def run_cmd(cmd, desc=""):
-    """Run a command and return (success, output)."""
-    try:
-        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=60)
-        return result.returncode == 0, result.stdout + result.stderr
-    except Exception as e:
-        return False, str(e)
 
 def test_1_xml_validation():
     """Test: All 10 XML files are well-formed.

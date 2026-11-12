@@ -33,6 +33,7 @@ jobs:
           python3 -m pip install --quiet pyyaml
           python3 test_multiviewport_wiring.py
           python3 test_int64_lowering.py
+          python3 test_bc_image_path.py
           python3 test_astc_format_coverage.py
           python3 test_depth_clamp_wiring.py
           python3 test_volcanic_mock.py

@@ -7,6 +7,7 @@ Validates all deliverables can be built/verified in a host-bound environment.
 import os
 import sys
 import subprocess
+import xml.etree.ElementTree as ET
 
 # Paths (derived from this file so the gate also runs from a CI checkout)
 REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -31,8 +32,13 @@ def run_cmd(cmd, desc=""):
         return False, str(e)
 
 def test_1_xml_validation():
-    """Test: All 10 XML files are well-formed (xmllint --noout)."""
-    print("TEST 1: XML validation with xmllint...")
+    """Test: All 10 XML files are well-formed.
+
+    Parsed with the standard library rather than shelling out to xmllint:
+    `xmllint --noout` only checks well-formedness, which ElementTree checks
+    identically, and xmllint is not installed on every CI runner.
+    """
+    print("TEST 1: XML well-formedness...")
     all_pass = True
     xml_files = [
         "cdm.xml", "cr.xml", "ipf.xml", "kmd_stream.xml", "lls.xml",
@@ -44,11 +50,14 @@ def test_1_xml_validation():
             print(f"  FAIL: {xml} not found")
             all_pass = False
             continue
-        success, output = run_cmd(f"xmllint --noout {path}", f"xmllint {xml}")
-        if success:
+        try:
+            ET.parse(path)
             print(f"  PASS: {xml}")
-        else:
-            print(f"  FAIL: {xml} - {output.strip()}")
+        except ET.ParseError as exc:
+            print(f"  FAIL: {xml} - {exc}")
+            all_pass = False
+        except OSError as exc:
+            print(f"  FAIL: {xml} - {exc}")
             all_pass = False
     return all_pass
 

@@ -106,11 +106,20 @@ def main():
         and blit_c.index("pvr_arch_cmd_buffer_upload_general") < staging_copy,
     )
 
-    # 6. The format table and its VkFormat mapping agree.
+    # 6. BC6H must declare 4-byte channels, matching the bptc decoder's float
+    # output; a narrower target under-sizes every buffer sized from it.
+    check(
+        "BC6H target is 128 bpp",
+        "PVR_BC_TARGET_RGBA32F, 16, 128" in emulation_c
+        and "PVR_BC_TARGET_RGBA16F" not in emulation_c,
+        "BC6H must target RGBA32F with target_bpp 128",
+    )
+
+    # 7. The format table and its VkFormat mapping agree.
     for target, vk_format in (
         ("PVR_BC_TARGET_RGBA8_UNORM", "VK_FORMAT_R8G8B8A8_UNORM"),
         ("PVR_BC_TARGET_RGBA8_SRGB", "VK_FORMAT_R8G8B8A8_SRGB"),
-        ("PVR_BC_TARGET_RGBA16F", "VK_FORMAT_R16G16B16A16_SFLOAT"),
+        ("PVR_BC_TARGET_RGBA32F", "VK_FORMAT_R32G32B32A32_SFLOAT"),
     ):
         check(
             f"{target} maps to {vk_format}",

@@ -99,7 +99,7 @@ main(void)
       { VK_FORMAT_BC3_SRGB_BLOCK, PVR_BC_TARGET_RGBA8_SRGB, 16 },
       { VK_FORMAT_BC4_UNORM_BLOCK, PVR_BC_TARGET_RGBA8_UNORM, 8 },
       { VK_FORMAT_BC5_UNORM_BLOCK, PVR_BC_TARGET_RGBA8_UNORM, 16 },
-      { VK_FORMAT_BC6H_UFLOAT_BLOCK, PVR_BC_TARGET_RGBA16F, 16 },
+      { VK_FORMAT_BC6H_UFLOAT_BLOCK, PVR_BC_TARGET_RGBA32F, 16 },
       { VK_FORMAT_BC7_UNORM_BLOCK, PVR_BC_TARGET_RGBA8_UNORM, 16 },
       { VK_FORMAT_BC7_SRGB_BLOCK, PVR_BC_TARGET_RGBA8_SRGB, 16 },
    };
@@ -128,8 +128,15 @@ main(void)
    check(pvr_bc_decoded_level_size(&info, 64, 64) == 64 * 4 * 64,
          "64x64 BC1 decodes to 16384 bytes of RGBA8");
    check(pvr_bc_format_info(VK_FORMAT_BC6H_UFLOAT_BLOCK, &info), "BC6H info");
-   check(pvr_bc_decoded_level_size(&info, 8, 8) == 8 * 8 * 8,
-         "8x8 BC6H decodes to 512 bytes of RGBA16F");
+   check(pvr_bc_decoded_level_size(&info, 8, 8) == 8 * 8 * 16,
+         "8x8 BC6H decodes to 1024 bytes of RGBA32F");
+   check(pvr_bc_emulated_vk_format(&info) == VK_FORMAT_R32G32B32A32_SFLOAT,
+         "BC6H emulates as 4-byte-per-channel RGBA32F");
+   check(pvr_bc_format_info(VK_FORMAT_BC1_RGB_UNORM_BLOCK, &info), "BC1 info");
+   check(pvr_bc_decoded_level_size(&info, 8, 8) == 8 * 8 * 4,
+         "8x8 BC1 decodes to 256 bytes of RGBA8");
+   check(pvr_bc_emulated_vk_format(&info) == VK_FORMAT_R8G8B8A8_UNORM,
+         "BC1 emulates as RGBA8");
 
    printf("\n[3] BC1 colour decode\n");
    {
@@ -178,6 +185,31 @@ main(void)
       pvr_bc_decode_level(&info, (uint8_t *)out16, 4 * 4 * 4, block, 16, 4, 4);
       check(out16[3] == 1.0f,
             "BC6H decode writes an opaque alpha (1.0)");
+
+      /* Regression: pvr_bc_decoded_level_size() must cover everything the
+       * decoder writes. BC6H writes four 32-bit floats per texel, so while
+       * the target was declared as RGBA16F (64 bpp) every buffer sized from
+       * this helper was half the needed size and the decode overran it.
+       */
+      {
+         const uint64_t size = pvr_bc_decoded_level_size(&info, 4, 4);
+         uint8_t *buf = malloc(size + 16);
+         bool canary_intact = buf != NULL;
+
+         check(size == 4 * 4 * 16, "4x4 BC6H sizing is 16 bytes per texel");
+         if (buf) {
+            memset(buf, 0xAB, size + 16);
+            pvr_bc_decode_level(&info, buf, 4 * 16, block, 16, 4, 4);
+
+            check(((float *)buf)[4 * 4 * 4 - 1] == 1.0f,
+                  "BC6H last texel decodes inside the sized buffer");
+            for (unsigned i = 0; i < 16; i++)
+               canary_intact = canary_intact && buf[size + i] == 0xAB;
+            check(canary_intact, "BC6H decode writes nothing past the level");
+
+            free(buf);
+         }
+      }
    }
 
    printf("\n[7] Partial (non-4-aligned) levels\n");

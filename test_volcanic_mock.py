@@ -8,11 +8,19 @@ import os
 import sys
 import subprocess
 
-# Paths
-MESA_SRC = "/home/ameya/bxm-research/research/mesa-src"
+# Paths (derived from this file so the gate also runs from a CI checkout)
+REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
+MESA_SRC = os.path.join(REPO_ROOT, "research", "mesa-src")
+
+if not os.path.isdir(MESA_SRC):
+    sys.exit(
+        f"error: {MESA_SRC} is missing - initialise the mesa-src submodule "
+        f"(git submodule update --init --recursive)"
+    )
+
 VOLCANIC_XML_DIR = os.path.join(MESA_SRC, "src/imagination/csbgen/volcanic")
 VOLCANIC_HWDEF_DIR = os.path.join(MESA_SRC, "src/imagination/include/hwdef")
-DOCS_FILE = "/home/ameya/bxm-research/VOLCANIC_REVERSE_ENGINEERING.md"
+DOCS_FILE = os.path.join(REPO_ROOT, "VOLCANIC_REVERSE_ENGINEERING.md")
 
 def run_cmd(cmd, desc=""):
     """Run a command and return (success, output)."""

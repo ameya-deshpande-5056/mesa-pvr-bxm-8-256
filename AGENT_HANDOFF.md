@@ -100,7 +100,16 @@ python3 /home/ameya/bxm-research/tools/package_driver.py
 ```
 
 ### Run the Offline Feature Gates
+
+> The gates read paths relative to their own file, so they run from any working
+directory. Two of them (M17 ASTC, M18 depth clamp) also read the **generated**
+CSB packet headers for bit positions and enum values. On a fresh checkout there
+is no build tree, so run `python3 tools/gen_csb_headers.py` first — it runs
+`csbgen/gen_pack_header.py` the same way meson does and writes the headers into
+`research/mesa-src/build-android/src/imagination/csbgen/`. CI does exactly this.
+
 ```bash
+python3 /home/ameya/bxm-research/tools/gen_csb_headers.py   # fresh checkout / CI only
 python3 /home/ameya/bxm-research/test_multiviewport_wiring.py    # M21 multi-viewport feature/limit/clip wiring
 python3 /home/ameya/bxm-research/test_int64_lowering.py          # M20 shaderInt64 lowering wiring
 /home/ameya/bxm-research/tests/build_test_bc_decode.sh && /home/ameya/bxm-research/tests/test_bc_decode   # M23 BC decode kernel (30 checks)

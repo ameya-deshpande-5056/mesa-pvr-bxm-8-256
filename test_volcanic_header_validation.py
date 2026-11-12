@@ -8,8 +8,16 @@ Host-bound only - no GPU required.
 import os
 import sys
 
-# Paths
-MESA_SRC = "/home/ameya/bxm-research/research/mesa-src"
+# Paths (derived from this file so the gate also runs from a CI checkout)
+REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
+MESA_SRC = os.path.join(REPO_ROOT, "research", "mesa-src")
+
+if not os.path.isdir(MESA_SRC):
+    sys.exit(
+        f"error: {MESA_SRC} is missing - initialise the mesa-src submodule "
+        f"(git submodule update --init --recursive)"
+    )
+
 VOLCANIC_HWDEF_DIR = os.path.join(MESA_SRC, "src/imagination/include/hwdef")
 
 # Header content checks: header_filename -> list of required patterns (relaxed matching)

@@ -31,7 +31,15 @@ import subprocess
 import sys
 from pathlib import Path
 
-MESA_SRC = "/home/ameya/bxm-research/research/mesa-src"
+REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
+MESA_SRC = os.path.join(REPO_ROOT, "research", "mesa-src")
+
+if not os.path.isdir(MESA_SRC):
+    sys.exit(
+        f"error: {MESA_SRC} is missing - initialise the mesa-src submodule "
+        f"(git submodule update --init --recursive)"
+    )
+
 HWDEF_BXM = os.path.join(
     MESA_SRC, "src/imagination/common/device_info/bxm-8-256.h"
 )
@@ -51,16 +59,6 @@ VULKAN_LIMITS_H = os.path.join(
 )
 # The vendor device-info packet is checked in at the repository root,
 # outside the mesa-src submodule.
-def _repo_root() -> str:
-    head = Path(MESA_SRC).resolve()
-    for parent in head.parents:
-        if (parent / "device-info" / "vkjson.json").exists():
-            return str(parent)
-    raise FileNotFoundError(
-        f"could not locate device-info/vkjson.json above {MESA_SRC}"
-    )
-
-REPO_ROOT = _repo_root()
 VKJSON = os.path.join(REPO_ROOT, "device-info", "vkjson.json")
 VOLCANIC_XML = os.path.join(
     MESA_SRC, "src/imagination/csbgen/volcanic/ppp.xml"

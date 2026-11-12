@@ -24,12 +24,20 @@ import os
 import re
 import sys
 
-MESA_SRC = "/home/ameya/bxm-research/research/mesa-src"
+REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
+MESA_SRC = os.path.join(REPO_ROOT, "research", "mesa-src")
+
+if not os.path.isdir(MESA_SRC):
+    sys.exit(
+        f"error: {MESA_SRC} is missing - initialise the mesa-src submodule "
+        f"(git submodule update --init --recursive)"
+    )
+
 PCO_NIR_C = os.path.join(MESA_SRC, "src/imagination/pco/pco_nir.c")
 PVR_PHYSICAL_DEVICE_C = os.path.join(
     MESA_SRC, "src/imagination/vulkan/pvr_physical_device.c"
 )
-VKJSON = "/home/ameya/bxm-research/device-info/vkjson.json"
+VKJSON = os.path.join(REPO_ROOT, "device-info", "vkjson.json")
 
 PASS = 0
 FAIL = 0

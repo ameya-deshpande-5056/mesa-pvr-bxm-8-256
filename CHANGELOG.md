@@ -59,7 +59,7 @@ Geometry crossing the near/far planes is now clamped to the depth range instead 
 ### Known limitations
 
 * Not exercised on silicon.
-* `VK_EXT_depth_clamp_zero_one` is still advertised unconditionally. The ISP clamps after the viewport transform (to the viewport depth range), which only coincides with the extension's [0, 1] pre-transform clamp when the viewport depth range is [0, 1].
+* `VK_EXT_depth_clamp_zero_one` is advertised unconditionally. The ISP clamp range for `isp_position_depth_clamp_z` is undocumented (it may clamp to [0, 1] in clip space, which is what the extension specifies), so the advertisement is kept — the sibling Turnip driver also advertises it unconditionally — and needs on-silicon confirmation with a narrowed `minDepth`/`maxDepth` viewport.
 * `TA_OUTPUT_SEL.tsp_unclamped_z_pres` is deliberately left at its pipeline-compile-time value: it is the fragment shader ABI for `pco_data.fs.uses.z`, not per-draw state, so toggling it per draw would desynchronise shader and packet.
 
 ### Verification

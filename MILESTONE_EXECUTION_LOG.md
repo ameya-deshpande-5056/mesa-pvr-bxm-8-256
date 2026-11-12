@@ -411,7 +411,7 @@ Mutation probe (to prove the gate is not vacuous): flipping `.depthClamp` back t
 #### Outcome
 M18: implemented and validated **host-only**. The clamp path is compiled into the AArch64 driver. Two things are explicitly not yet true:
 - Depth clamping has not been exercised on silicon.
-- `VK_EXT_depth_clamp_zero_one` is still advertised unconditionally. The ISP clamps after the viewport transform (to the viewport depth range), which only coincides with the extension's [0, 1] pre-transform clamp when `minDepth = 0` and `maxDepth = 1`. Tightening that advertisement is a follow-up, not part of this milestone.
+- `VK_EXT_depth_clamp_zero_one` is advertised unconditionally, and that is deliberate for now. The exact clamp range of the ISP `isp_position_depth_clamp_z` bit is not documented: it may clamp to [0, 1] in clip space (which is exactly what the extension specifies) rather than to the viewport depth range. Turnip — the Adreno TBDR driver in this same tree — also advertises `depthClampZeroOne = true` unconditionally (`src/freedreno/vulkan/tu_device.cc:713`). Settling the question needs an on-silicon measurement with a narrowed `minDepth`/`maxDepth` viewport; changing the advertisement before then would be a guess in the opposite direction.
 
 #### Next action
 M20 (Int64 / Int8 lowering) per the milestone order in force, or M19 (descriptor indexing) if Winlator/DXVK compatibility is prioritised first.

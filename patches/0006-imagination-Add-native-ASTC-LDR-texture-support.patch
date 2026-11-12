@@ -1,0 +1,120 @@
+From 8fffd8da4bf97991b0f90cf8c94064253d09f8f8 Mon Sep 17 00:00:00 2001
+From: Ameya Deshpande <fierbub.42069@gmail.com>
+Date: Thu, 12 Nov 2026 18:43:27 +0530
+Subject: [PATCH 6/6] imagination: Add native ASTC LDR texture support
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The B-Series TPU decompresses ASTC natively (the stock driver reports
+textureCompressionASTC_LDR = 1.0 for BXM-8-256), but this driver advertised the
+feature as false and the format registry only listed ETC2/EAC formats, so
+Switch and 3DS titles could not use their ASTC surfaces at all.
+
+Register all 28 LDR formats (14 block sizes x UNORM/sRGB) against the texstate
+compressed format indices 0-13 that the hardware already defines, add the
+matching compressed border-colour entries using the U8U8U8U8 simple format (the
+device has tpu_border_colour_enhanced), and drive
+textureCompressionASTC_LDR from the device has_astc feature bit that every
+B-Series profile already sets.
+
+sRGB shares the UNORM hardware index because sRGB decoding is selected by the
+image-word0 gamma bit, exactly as for the ETC2/EAC formats.
+
+Verified: AArch64 driver links; the format/feature/border/texstate tables agree
+across all 156 checks of the root repository's test_astc_format_coverage.py.
+Not verified on silicon.
+
+🤖 Generated with Codebuff
+Co-Authored-By: Codebuff <noreply@codebuff.com>
+Assisted-by: LLM
+---
+ src/imagination/vulkan/pvr_arch_border.c     | 14 +++++++++
+ src/imagination/vulkan/pvr_arch_formats.c    | 32 ++++++++++++++++++++
+ src/imagination/vulkan/pvr_physical_device.c |  2 +-
+ 3 files changed, 47 insertions(+), 1 deletion(-)
+
+diff --git a/src/imagination/vulkan/pvr_arch_border.c b/src/imagination/vulkan/pvr_arch_border.c
+index 1990433e30b5..caf950989ff5 100644
+--- a/src/imagination/vulkan/pvr_arch_border.c
++++ b/src/imagination/vulkan/pvr_arch_border.c
+@@ -145,6 +145,20 @@ static const struct pvr_tex_format_compressed_table_entry {
+    struct pvr_tex_format_compressed_description desc;
+    bool present;
+ } pvr_tex_format_compressed_table[PVR_TEX_FORMAT_COUNT] = {
++   /*   0 */ FORMAT(ASTC_4X4, ASTC_4x4, U8U8U8U8),
++   /*   1 */ FORMAT(ASTC_5X4, ASTC_5x4, U8U8U8U8),
++   /*   2 */ FORMAT(ASTC_5X5, ASTC_5x5, U8U8U8U8),
++   /*   3 */ FORMAT(ASTC_6X5, ASTC_6x5, U8U8U8U8),
++   /*   4 */ FORMAT(ASTC_6X6, ASTC_6x6, U8U8U8U8),
++   /*   5 */ FORMAT(ASTC_8X5, ASTC_8x5, U8U8U8U8),
++   /*   6 */ FORMAT(ASTC_8X6, ASTC_8x6, U8U8U8U8),
++   /*   7 */ FORMAT(ASTC_8X8, ASTC_8x8, U8U8U8U8),
++   /*   8 */ FORMAT(ASTC_10X5, ASTC_10x5, U8U8U8U8),
++   /*   9 */ FORMAT(ASTC_10X6, ASTC_10x6, U8U8U8U8),
++   /*  10 */ FORMAT(ASTC_10X8, ASTC_10x8, U8U8U8U8),
++   /*  11 */ FORMAT(ASTC_10X10, ASTC_10x10, U8U8U8U8),
++   /*  12 */ FORMAT(ASTC_12X10, ASTC_12x10, U8U8U8U8),
++   /*  13 */ FORMAT(ASTC_12X12, ASTC_12x12, U8U8U8U8),
+    /*  68 */ FORMAT(ETC2_RGB, ETC2_RGB8, U8U8U8U8),
+    /*  69 */ FORMAT(ETC2A_RGBA, ETC2_RGBA8, U8U8U8U8),
+    /*  70 */ FORMAT(ETC2_PUNCHTHROUGHA, ETC2_RGB8A1, U8U8U8U8),
+diff --git a/src/imagination/vulkan/pvr_arch_formats.c b/src/imagination/vulkan/pvr_arch_formats.c
+index cebe797a39ed..91244e82dc92 100644
+--- a/src/imagination/vulkan/pvr_arch_formats.c
++++ b/src/imagination/vulkan/pvr_arch_formats.c
+@@ -167,6 +167,38 @@ static const struct pvr_format pvr_format_table[] = {
+    FORMAT_COMPRESSED(ETC2_R11_SNORM, EAC_R11_SIGNED),
+    FORMAT_COMPRESSED(ETC2_RG11_UNORM, EAC_RG11_UNSIGNED),
+    FORMAT_COMPRESSED(ETC2_RG11_SNORM, EAC_RG11_SIGNED),
++
++   /* ASTC LDR. The B-Series TPU decompresses ASTC natively, so these only
++    * need a texstate format index; there is no software decode path.
++    */
++   FORMAT_COMPRESSED(ASTC_4x4,       ASTC_4X4),
++   FORMAT_COMPRESSED(ASTC_4x4_SRGB,  ASTC_4X4),
++   FORMAT_COMPRESSED(ASTC_5x4,       ASTC_5X4),
++   FORMAT_COMPRESSED(ASTC_5x4_SRGB,  ASTC_5X4),
++   FORMAT_COMPRESSED(ASTC_5x5,       ASTC_5X5),
++   FORMAT_COMPRESSED(ASTC_5x5_SRGB,  ASTC_5X5),
++   FORMAT_COMPRESSED(ASTC_6x5,       ASTC_6X5),
++   FORMAT_COMPRESSED(ASTC_6x5_SRGB,  ASTC_6X5),
++   FORMAT_COMPRESSED(ASTC_6x6,       ASTC_6X6),
++   FORMAT_COMPRESSED(ASTC_6x6_SRGB,  ASTC_6X6),
++   FORMAT_COMPRESSED(ASTC_8x5,       ASTC_8X5),
++   FORMAT_COMPRESSED(ASTC_8x5_SRGB,  ASTC_8X5),
++   FORMAT_COMPRESSED(ASTC_8x6,       ASTC_8X6),
++   FORMAT_COMPRESSED(ASTC_8x6_SRGB,  ASTC_8X6),
++   FORMAT_COMPRESSED(ASTC_8x8,       ASTC_8X8),
++   FORMAT_COMPRESSED(ASTC_8x8_SRGB,  ASTC_8X8),
++   FORMAT_COMPRESSED(ASTC_10x5,      ASTC_10X5),
++   FORMAT_COMPRESSED(ASTC_10x5_SRGB, ASTC_10X5),
++   FORMAT_COMPRESSED(ASTC_10x6,      ASTC_10X6),
++   FORMAT_COMPRESSED(ASTC_10x6_SRGB, ASTC_10X6),
++   FORMAT_COMPRESSED(ASTC_10x8,      ASTC_10X8),
++   FORMAT_COMPRESSED(ASTC_10x8_SRGB, ASTC_10X8),
++   FORMAT_COMPRESSED(ASTC_10x10,     ASTC_10X10),
++   FORMAT_COMPRESSED(ASTC_10x10_SRGB, ASTC_10X10),
++   FORMAT_COMPRESSED(ASTC_12x10,     ASTC_12X10),
++   FORMAT_COMPRESSED(ASTC_12x10_SRGB, ASTC_12X10),
++   FORMAT_COMPRESSED(ASTC_12x12,     ASTC_12X12),
++   FORMAT_COMPRESSED(ASTC_12x12_SRGB, ASTC_12X12),
+    FORMAT_YCBCR(G8_B8R8_420_UNORM, YVU420_2PLANE),
+    FORMAT_YCBCR(G8_B8_R8_420_UNORM, YUV420_3PLANE),
+ };
+diff --git a/src/imagination/vulkan/pvr_physical_device.c b/src/imagination/vulkan/pvr_physical_device.c
+index 0c66d7b95eda..fec450921a94 100644
+--- a/src/imagination/vulkan/pvr_physical_device.c
++++ b/src/imagination/vulkan/pvr_physical_device.c
+@@ -268,7 +268,7 @@ static void pvr_physical_device_get_supported_features(
+       .multiViewport = false,
+       .samplerAnisotropy = true,
+       .textureCompressionETC2 = true,
+-      .textureCompressionASTC_LDR = false,
++      .textureCompressionASTC_LDR = PVR_HAS_FEATURE(dev_info, astc),
+       .textureCompressionBC = false,
+       .occlusionQueryPrecise = true,
+       .pipelineStatisticsQuery = false,
+-- 
+2.43.0
+

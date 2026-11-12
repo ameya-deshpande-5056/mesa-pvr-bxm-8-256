@@ -122,7 +122,7 @@ gcc -Wall -Wextra -O2 /home/ameya/bxm-research/tests/test_drm_shim_mock.c -o /ho
 * **Milestone 17 [COMPLETE / HOST-VALIDATED]:**
   * **Native ASTC LDR textures:** 28 `FORMAT_COMPRESSED()` entries in `pvr_arch_formats.c`, 14 compressed border-colour entries in `pvr_arch_border.c`, and `.textureCompressionASTC_LDR = PVR_HAS_FEATURE(dev_info, astc)`. Gate: `python3 test_astc_format_coverage.py`. Native TPU sampling on silicon is still unverified.
 * **Milestone 18 [COMPLETE / HOST-VALIDATED]:**
-  * **ISP depth clamping:** `pvr_depth_clamp_enabled()` drives both `TA_STATE_PPP_CTRL.clip_mode` and `TA_OUTPUT_SEL.isp_position_depth_clamp_z`; `.depthClamp = true`. Gate: `python3 test_depth_clamp_wiring.py`. Silicon behaviour unverified, and `VK_EXT_depth_clamp_zero_one` is still advertised unconditionally (see the M18 entry in `MILESTONE_EXECUTION_LOG.md`).
+  * **ISP depth clamping:** `pvr_depth_clamp_enabled()` drives both `TA_STATE_PPP_CTRL.clip_mode` and `TA_OUTPUT_SEL.isp_position_depth_clamp_z`; `.depthClamp = true`. Gate: `python3 test_depth_clamp_wiring.py`. Silicon behaviour unverified, and the `VK_EXT_depth_clamp_zero_one` clamp range still needs on-silicon confirmation (see the M18 entry in `MILESTONE_EXECUTION_LOG.md`).
 * **Driver Feature Expansion Roadmap [PLANNED / THINGS TO DO]:**
   * **M19 (Descriptor Indexing / Bindless):** Implement NIR indirect descriptor load lowering to global memory (Turnip style) to support modern Winlator/DXVK games.
   * **M20 (Int64 / Int8 Math):** Hook `nir_lower_int64` and `nir_lower_bit_size` in PCO backend compiler.

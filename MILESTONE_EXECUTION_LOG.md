@@ -600,6 +600,32 @@ From `binaries/libusc.so`:
 
 ---
 
+## 2026-11-13 — M19 stage 1 continued, M20 8-bit
+
+### M19: where the bindless constraint lives
+
+`binaries/libusc.so` carries 130 embedded vendor source paths, which turns the diagnostics into source references. The only bindless message — `In bindless mode the last gather4 source must be a channel select.` (VA `0x27148`) — is attributed to `compiler/usc/volcanic/texture/usctexture.c`, i.e. the **Volcanic texture ISA emitter**, not a Vulkan-layer or driver file.
+
+Its validation site is `0x215144`-`0x216240`, and the emitted checks are readable:
+
+- `sub w8, w28, #0x6a; cmp w8, #0x3; b.hi ...` — opcode must be in `0x6a`-`0x6d`, the four `LDGATHER4*` variants (`LDGATHER4`, `LDGATHER4_C`, `LDGATHER4_PO`, `LDGATHER4_C_PO`).
+- `adr x10, 0x287138; add x10, x10, x8, lsl #4` — a table of 16-byte input-instruction descriptors indexed by opcode; the neighbouring diagnostic names it `g_asInputInstDesc[psInputInst->eOpCode]`.
+- `ldr w8, [x8, w9, uxtw #2]` against `adr x8, 0x8000 + 0x60` — a per-operand dword table.
+- `cmp w8, w9` against `uNumSrcArgs` (`[x10, #4]`) → the `channelSelectSource < ...uNumSrcArgs` diagnostic.
+- `mov w9, #0x2c; umaddl x8, w8, w9, x10; ldr w9, [x8, #4]; cmp w9, #0x1c; b.ne <error>` — operand descriptors are 44 bytes, their type field is at `+4`, and type `0x1c` (28) is the channel-select kind; anything else in the last gather4 source slot produces the bindless diagnostic.
+
+So bindless is an **operand-encoding mode of the ISA emitter**: the descriptor travels in the shader's own operand stream and gather4's last source slot is constrained to a channel select. That rules out "generate dynamic PDS programs" as the shape of the fix for our driver and keeps the descriptor-memory-load plan (M19 stage 2-3) alive.
+
+The mode flag itself is still unlocated — no vendor module contains a string naming it, so it lives in a struct field. Next step is to find the option struct that reaches `usctexture.c` (the setter is likely in the compile-options path, not in this file) and to decode the 16-byte input-instruction descriptor entries.
+
+### M20: 8-bit integers
+
+- `shaderInt8` is now advertised. `pco_lower_bit_size_cb()` widens 8-bit ALU to 32 bits through `nir_lower_bit_size`, and the pass is placed **before** `nir_lower_mem_access_bit_sizes` so an 8-bit value feeding a load offset or store value is already 32-bit when accesses are sized.
+- 8-bit storage stays off, and not because of silicon: `trans_load_buffer()` asserts `bits == 32` and `trans_store_buffer()` has a `switch (bits)` with only `case 32:` followed by `UNREACHABLE`, so a byte access would abort compilation. The vendor reports `storageBuffer8BitAccess = 1.0`, so the gap is ours.
+- Gate: `test_int8_lowering.py` (9 checks, mutation-probed) enforces the widening pass, its ordering, the feature state, **and** that 8-bit storage is not advertised while the backend is 32-bit-only. Flipping `storageBuffer8BitAccess` on fails two checks.
+
+---
+
 ## Notes on Execution
 
 This log is intentionally designed to be transparent and auditable. The working assumption is:

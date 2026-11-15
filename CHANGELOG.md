@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.3.0-alpha] - 2026-11-12
 
+### Milestone 20 (part 2): 8-bit integers
+
+`shaderInt8` is advertised: `pco_lower_bit_size_cb()` widens 8-bit ALU to 32 bits, running before the memory-access sizing pass so 8-bit offsets and store values are already widened.
+
+8-bit **storage** (`storageBuffer8BitAccess`, `uniformAndStorageBuffer8BitAccess`) stays off. The vendor driver reports both as 1.0, so the gap is in PCO: `trans_load_buffer()` asserts `bits == 32` and `trans_store_buffer()` ends in `UNREACHABLE`, so a byte access would abort compilation rather than lower. `test_int8_lowering.py` (9 checks, mutation-probed) fails if the flags are enabled while the backend is still 32-bit only.
+
+---
+
 ### Milestone 23 (stages 2-3): BC emulation in the image path
 
 The decode kernel now has callers. BC images are stored uncompressed, decoded on upload, and every path that would silently move the wrong bytes is refused with a log line. `textureCompressionBC` remains **false** — see the note at the end.

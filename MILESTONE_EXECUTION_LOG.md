@@ -616,12 +616,36 @@ Its validation site is `0x215144`-`0x216240`, and the emitted checks are readabl
 
 So bindless is an **operand-encoding mode of the ISA emitter**: the descriptor travels in the shader's own operand stream and gather4's last source slot is constrained to a channel select. That rules out "generate dynamic PDS programs" as the shape of the fix for our driver and keeps the descriptor-memory-load plan (M19 stage 2-3) alive.
 
-The mode flag itself is still unlocated — no vendor module contains a string naming it, so it lives in a struct field. Next step is to find the option struct that reaches `usctexture.c` (the setter is likely in the compile-options path, not in this file) and to decode the 16-byte input-instruction descriptor entries.
+The mode flag itself is still unlocated — no vendor module contains a string naming it, so it lives in a struct field. Next step is to find the option struct that reaches `usctexture.c` (the setter is likely in the compile-options path, not in this file).
+
+#### The input-instruction descriptor table, decoded
+
+`g_asInputInstDesc` lives in `.data.rel.ro` at VA `0x287138` (file offset `0x267138`), 16-byte entries. The four gather4 opcodes read:
+
+| Opcode | `uNumSrcArgs` |
+| :--- | :---: |
+| `0x6a` | 2 |
+| `0x6b` | 3 |
+| `0x6c` | 4 |
+| `0x6d` | 2 |
+
+The validator's last test is `operand[select].uType == 0x1c` on a 44-byte operand descriptor, where `select` is a channel-select source index that was range-checked against `uNumSrcArgs`. So the emitter knows, per gather4 variant, how many sources the instruction carries, and requires that the final source slot — in bindless mode — is a channel select. Which opcode maps to which `LDGATHER4*` spelling is not yet established; the operands themselves live in the shader's operand stream, not in a PDS entry.
+
+#### Tooling added
+
+`research/xref_string_aarch64.py`: resolves a string to its section and VA, then scans the disassembly for the `ADRP`/`ADD` (or `ADR`) pair that materialises it and prints the surrounding instructions. It reproduces the `0x216224` reference above, so the next stage does not have to redo this by hand.
+
+#### Where the flag is *not*
+
+The neighbouring diagnostics in the same `.rodata` block are assert expressions rather than messages, and they name the vendor's own structures: `uChannelSelectSource < g_asInputInstDesc[psInputInst->eOpCode].uNumSrcArgs`, `g_psInstDesc[psInstSt_Texel->eOpcode].eType == USC_INST_TYPE_LDST`, and `psState->uFlags2 & USC_FLAGS2_ASSIGNED_PREDICATE_REGNUMS`. That last one was the best candidate for a mode flag, so its family was enumerated: `libusc.so` carries 14 distinct `USC_FLAGS*` names and every one of them is compiler-internal state (SSA form, reg-num assignment, CFG frozen, work-list active, ...). None is a bindless or descriptor-indexing option, so bindless is not encoded in `uFlags2`.
+
+Exported entry points that bound the remaining search: `PVRUniFlexCompileToHw` (compilation), `PVRUniFlexGetInputInstDesc` / `PVRUniFlexInitInst` (the input-instruction descriptor table decoded above), `PVRUniFlexSymbolicDebug`, `PVRUniflexReadHWBinary`. The option therefore arrives through the context/compile-info struct passed to `PVRUniFlexCompileToHw`; finding it means diffing the struct layout against what the Vulkan driver writes, which is the next step and is bounded (unlike grepping strings, which is now exhausted).
 
 ### M20: 8-bit integers
 
 - `shaderInt8` is now advertised. `pco_lower_bit_size_cb()` widens 8-bit ALU to 32 bits through `nir_lower_bit_size`, and the pass is placed **before** `nir_lower_mem_access_bit_sizes` so an 8-bit value feeding a load offset or store value is already 32-bit when accesses are sized.
 - 8-bit storage stays off, and not because of silicon: `trans_load_buffer()` asserts `bits == 32` and `trans_store_buffer()` has a `switch (bits)` with only `case 32:` followed by `UNREACHABLE`, so a byte access would abort compilation. The vendor reports `storageBuffer8BitAccess = 1.0`, so the gap is ours.
+- What the ISA does allow (from `pco_isa.py`): store instructions carry a `dsize` field with `8bit`/`16bit`/`32bit` encodings, so byte *stores* are expressible. Load instructions (`I_LD_IMMBL`, `I_LD_REGBL`) declare no `dsize` — only `burstlen` in 128-bit units — so there is no byte-load encoding in the generated ISA description. That asymmetry is the concrete reason both 16-bit and 8-bit *storage* features stay off: they need byte/word loads, and no lowering in PCO currently synthesises them from a wider access. Resolving it needs either the missing load encoding or a lowering that reads a containing word, which is only sound when alignment and bounds allow it.
 - Gate: `test_int8_lowering.py` (9 checks, mutation-probed) enforces the widening pass, its ordering, the feature state, **and** that 8-bit storage is not advertised while the backend is 32-bit-only. Flipping `storageBuffer8BitAccess` on fails two checks.
 
 ---

@@ -641,6 +641,23 @@ The neighbouring diagnostics in the same `.rodata` block are assert expressions 
 
 Exported entry points that bound the remaining search: `PVRUniFlexCompileToHw` (compilation), `PVRUniFlexGetInputInstDesc` / `PVRUniFlexInitInst` (the input-instruction descriptor table decoded above), `PVRUniFlexSymbolicDebug`, `PVRUniflexReadHWBinary`. The option therefore arrives through the context/compile-info struct passed to `PVRUniFlexCompileToHw`; finding it means diffing the struct layout against what the Vulkan driver writes, which is the next step and is bounded (unlike grepping strings, which is now exhausted).
 
+### M19 stage 2: what `PVRUniFlexCompileToHw` does with its arguments
+
+`PVRUniFlexCompileToHw` sits at `0x6b438` and is a single ~37 KB function (`0x6b438`-`0x7459c`), so it is the whole compile pipeline rather than a wrapper. Its prologue fixes the argument roles:
+
+| Register | Argument | Evidence |
+| :--- | :--- | :--- |
+| `x0` | context | `ldp x0, x8, [x0]` + `blr x8` at entry (vtable call), then `str x0, [x27, #16]` |
+| `x1` | second struct | read at `+0`, `+24`; `ldrb` at `+34`; stored back at `+0` and `+24` |
+| `x2` | third struct | used as an index base for byte fields at `+140`/`+141` |
+| `x3` | options struct | double at `+0`, words at `+4` and `+8`, then `+44`, `+112`, `+4048`-`+4104` |
+| `x4` | output/state struct | large, written at `+0`, `+40`-`+96`, `+3616`-`+3664` |
+
+Two results that matter more than the map itself:
+
+- **The gather4 check is ungated.** Between the opcode range check (`0x21514c`) and the operand-type compare (`0x21519c`) there is no flag load and no conditional branch other than the index bounds checks. So "bindless mode" is not a runtime switch consulted at emission — it is a *code path*: whoever builds the gather4 instruction chooses the operand form, and this emitter path is the bindless one. For our driver that means the lowering has to produce the bindless operand form, not toggle a bit.
+- **Naive offset scanning does not survive this function.** The argument registers are reused as general temporaries a few hundred instructions in (`x20` becomes `x17+x5` at `0x6ccc0`, `x19` is reloaded from the stack at `0x6e43c`), so byte-offset "candidates" harvested by pattern matching cannot be attributed to an argument. The next attempt needs to follow the call chain that constructs the texture instruction — or a dataflow-capable disassembler — rather than regex over objdump output.
+
 ### M20: 8-bit integers
 
 - `shaderInt8` is now advertised. `pco_lower_bit_size_cb()` widens 8-bit ALU to 32 bits through `nir_lower_bit_size`, and the pass is placed **before** `nir_lower_mem_access_bit_sizes` so an 8-bit value feeding a load offset or store value is already 32-bit when accesses are sized.

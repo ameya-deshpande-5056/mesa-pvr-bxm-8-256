@@ -662,10 +662,10 @@ Two results that matter more than the map itself:
 
 Following the call chain rather than scanning offsets works, and it lands on the answer. The function that contains the gather4 validation spans `0x213120`-`0x2162f8` (12,472 bytes) and has exactly **one caller**, `0x1e8edc` inside the function starting at `0x1e8ea4`. That caller is the gather4 emitter:
 
-1. It takes the component mask `ldrb w25, [x20, #16]` and a base index from the `0x213120` call (returned through `w24`), then loops `w22 = 0..3` over the four gather components.
+1. It takes the component mask `ldrb w25, [x20, #16]` and a base index from the `0x213120` call (returned through `w24`), then loops `w22 = 0..3` over the four components of that mask.
 2. Per present component it allocates an operand (`bl 0xabe18`) and types it via `0xabb84`. That function is "set operand type": the operand-type table lives at VA `0x289470` with 40-byte entries (`umaddl x8, w2, #40, x23` at `0xabba4`), and index `0x1c` is therefore a real operand type.
 3. It then calls `0x1e1370` per component, passing a bit taken from the state word: `ldr w8, [x20, #692]` + `ubfx w4, w8, #1, #1` at `0x1e8f24`-`0x1e8f3c`. `0x1e1370` masks it to one bit (`and w6, w4, #0x1`) and forwards it to `0x1e1470`.
-4. `0x1e1470` creates the **descriptor-index operand with type `0x1c`** — the same channel-select type the gather4 validation demands — and then sets three operand-flag bits from three separate booleans (`0x1e154c`-`0x1e1588`):
+4. `0x1e1470` creates the **descriptor-index operand with category `0x1c`** — the channel-select category the gather4 validation demands — and then sets three operand-flag bits from three separate booleans (`0x1e154c`-`0x1e1588`):
 
 | Flag | Set from |
 | :--- | :--- |
@@ -673,7 +673,41 @@ Following the call chain rather than scanning offsets works, and it lands on the
 | `0x800` | `tst w24, #1` — `ldrb [x3, #40]` in the operand-declaration struct |
 | `0x1000` | `tst w28, #1` — `ldrb [x3, #41]`, which additionally sets `0x200000` in the context word at `[x20, #12]` |
 
-**Conclusion.** The flag we were hunting is not a compile-info option that gates emission — it is an *operand* flag on the descriptor-index operand, and the operand is always built with type `0x1c` (channel select). So there is nothing for our driver to switch on: to use bindless descriptors the emitter must produce the type-`0x1c` operand carrying the dynamic index, and set `0x20` on it when the index comes from a descriptor array. That is precisely the shape `pco_nir_vk.c` already computes for us — `load_vulkan_descriptor` lowers to `vec3(packed_desc, elem, 0)` and `fetch_resource_base_reg()` turns `desc_set`/`binding`/`elem` into a register range — which settles the M19 design question in favour of the descriptor-in-memory lowering.
+**Conclusion.** The flag we were hunting is not a compile-info option that gates emission — it is an *operand* flag on the descriptor-index operand, and the operand is always built with category `0x1c` (channel select). So there is nothing for our driver to switch on: to use bindless descriptors the emitter must produce the category-`0x1c` operand carrying the dynamic index, and set `0x20` on it when the index comes from a descriptor array. That is precisely the shape `pco_nir_vk.c` already computes for us — `load_vulkan_descriptor` lowers to `vec3(packed_desc, elem, 0)` and `fetch_resource_base_reg()` turns `desc_set`/`binding`/`elem` into a register range — which settles the M19 design question in favour of the descriptor-in-memory lowering.
+
+### M19 stage 4: the opcode table, and a correction to stage 3
+
+Stage 3's reading of the emitter was right about the mechanics and wrong about which opcode it was looking at. Two new tools (`research/jump_table.py`, `research/trace_regs.py`) settled both.
+
+**`trace_regs.py`** is a symbolic register tracer: it walks a function linearly carrying `arg+offset` provenance, drops state at branch targets (conservative merge), and reports memory accesses and call arguments with the argument they belong to. On the gather4 emitter it attributes `[x20, #692]` and `[x20, #16]` to the second parameter and nothing else — the previous pattern-based pass had produced false hits once the argument registers were recycled.
+
+**`jump_table.py`** decodes the dispatcher jump tables. Both dispatchers are the same shape:
+
+```
+ldrh w11, [x9, x8, lsl #1]    ; 16-bit offset
+adr  x10, <base>
+add  x10, x10, x11, lsl #2
+br   x10
+```
+
+Dispatcher A (table at `0xa088`, base `0x1eb6cc`, guard `opcode <= 0x184`) maps **opcodes `0x60`-`0x6e` to the emitter at `0x1e8ea4`**. Dispatcher B reaches the same emitter only through an out-of-range fallback, so A is the real path.
+
+**The correction.** `.data.rel.ro` holds a per-opcode record table with 16-byte entries at `0x287138`: `{u32, u32, char *name}`, indexed directly by opcode (389 entries, names resolved through `.rela.dyn` `R_AARCH64_RELATIVE` addends). Reading it gives the family the emitter actually serves:
+
+| Opcode | Mnemonic | dst | src |
+| :--- | :--- | ---: | ---: |
+| `0x60` | `LD` | 1 | 6 |
+| `0x63` | `LDL` | 1 | 7 |
+| `0x69` | `LDLOD` | 1 | 6 |
+| `0x6a` | `LDGATHER4` | 1 | 7 |
+| `0x6b` | `LDGATHER4_C` | 1 | 8 |
+| `0x6c` | `LDGATHER4_PO` | 1 | 7 |
+| `0x6d` | `LDGATHER4_C_PO` | 1 | 8 |
+| `0x6e` | `LD2DMS` | 1 | 8 |
+
+So the special-cased `cmp w8, #0x69` path at `0x1e8f70` is **`LDLOD`**, not gather4. The `word0 = 13` / index `0` encoding that components 2 and 3 get there is LDLOD-specific and has nothing to do with channel select. Stage 3's table row for that path was mislabelled; the flag analysis above is unaffected, because the category-`0x1c` operand is built on the *common* per-component path (`0x1e8f18` → `0x1e1370` → `0x1e1470`) that every opcode `0x60`-`0x6e` takes.
+
+**What this means concretely:** the channel-select form is not conditional on a gather4-specific test at all. For every LD-family instruction, each present component of the state mask (`[state+16]`, bits 0-3) gets one operand, and that operand is built with category `0x1c`. The only per-instruction variation is in its flag bits. The validator at `0x215144` therefore does not guard a mode — it guards that the emitter produced the operand shape the ISA requires, which is exactly what the unconditional path does.
 
 Caveat worth keeping: which of the three bits is *the* bindless bit is inferred from code structure, not from a named option. `0x20` is the one fed by the instruction-state path that the gather4 emitter drives; `0x800`/`0x1000` come from the operand declaration and are more likely the uniform/dynamic-index pair. Confirming this needs one shader compiled by the vendor driver on the device, which is still gated.
 

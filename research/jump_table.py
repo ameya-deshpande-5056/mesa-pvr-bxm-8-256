@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Decode an AArch64 jump table used by libusc.so's opcode dispatchers.
+Decode AArch64 jump tables used by libusc.so's opcode dispatchers.
 
 The dispatcher pattern in libusc.so is:
 
@@ -14,6 +14,8 @@ groups opcodes by target, and (with --resolve) follows each target block to the
 function it tail-calls, which is how the opcode -> emitter mapping is recovered
 without trusting instruction patterns.
 
+Kept importable: test_m19_opcode_tables.py pins these findings with it.
+
 Usage:
   jump_table.py <elf> <table-va> <base-addr> <count> [--resolve] [--start N]
 """
@@ -24,8 +26,11 @@ import struct
 import subprocess
 import sys
 
+OBJDUMP = 'aarch64-linux-gnu-objdump'
 
-def sections(elf):
+
+def read_sections(elf):
+    """Return [(name, addr, offset, size)] from readelf -SW."""
     out = subprocess.run(['readelf', '-SW', elf], capture_output=True, text=True).stdout
     secs = []
     for ln in out.splitlines():
@@ -35,26 +40,74 @@ def sections(elf):
     return secs
 
 
-def va_to_off(secs, va):
-    for name, addr, off, size in secs:
+def section_of(sections, va):
+    for sec in sections:
+        name, addr, off, size = sec
         if addr and addr <= va < addr + size:
-            return off + (va - addr)
+            return sec
     return None
 
 
-def read_u16(elf, secs, va):
-    off = va_to_off(secs, va)
+def va_to_offset(sections, va):
+    sec = section_of(sections, va)
+    if sec is None:
+        return None
+    _, addr, off, _ = sec
+    return off + (va - addr)
+
+
+def read_u16(elf, sections, va):
+    off = va_to_offset(sections, va)
     if off is None:
         return None
     with open(elf, 'rb') as f:
         f.seek(off)
-        return struct.unpack('<H', f.read(2))[0]
+        data = f.read(2)
+    if len(data) != 2:
+        return None
+    return struct.unpack('<H', data)[0]
+
+
+def read_u32(elf, sections, va):
+    off = va_to_offset(sections, va)
+    if off is None:
+        return None
+    with open(elf, 'rb') as f:
+        f.seek(off)
+        data = f.read(4)
+    if len(data) != 4:
+        return None
+    return struct.unpack('<I', data)[0]
+
+
+def read_cstr(elf, sections, va):
+    off = va_to_offset(sections, va)
+    if off is None:
+        return None
+    with open(elf, 'rb') as f:
+        f.seek(off)
+        data = f.read(256)
+    end = data.find(b'\x00')
+    if end < 0:
+        return None
+    return data[:end].decode('latin1')
+
+
+def decode_table(elf, sections, table_va, base_va, count, start=0):
+    """opcode -> target address for a 16-bit-offset jump table."""
+    targets = {}
+    for i in range(count):
+        raw = read_u16(elf, sections, table_va + 2 * i)
+        if raw is None:
+            raise SystemExit('cannot read jump-table entry %d' % i)
+        targets[i + start] = base_va + 4 * raw
+    return targets
 
 
 def block_tail(elf, addr, window=0x30):
-    """Find the unconditional branch that terminates the case block at addr."""
+    """The unconditional branch that terminates the case block at addr."""
     out = subprocess.run(
-        ['aarch64-linux-gnu-objdump', '-d', '--no-show-raw-insn',
+        [OBJDUMP, '-d', '--no-show-raw-insn',
          '--start-address=0x%x' % addr, '--stop-address=0x%x' % (addr + window), elf],
         capture_output=True, text=True).stdout
     for ln in out.splitlines():
@@ -64,38 +117,24 @@ def block_tail(elf, addr, window=0x30):
     return None
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument('elf')
-    ap.add_argument('table', help='table virtual address (hex)')
-    ap.add_argument('base', help='base address the offsets are relative to (hex)')
-    ap.add_argument('count', type=lambda v: int(v, 0))
-    ap.add_argument('--start', type=lambda v: int(v, 0), default=0,
-                    help='opcode added to the index (for tables indexed by op - K)')
-    ap.add_argument('--resolve', action='store_true')
-    args = ap.parse_args()
-
-    elf = args.elf
-    secs = sections(elf)
-    table, base = int(args.table, 0), int(args.base, 0)
-
-    groups = {}
-    for i in range(args.count):
-        raw = read_u16(elf, secs, table + 2 * i)
-        if raw is None:
-            sys.exit('cannot read table entry %d' % i)
-        target = base + 4 * raw
-        groups.setdefault(target, []).append(i + args.start)
-
-    for target in sorted(groups):
-        ops = groups[target]
-        desc = ''
-        if args.resolve:
-            tail = block_tail(elf, target)
-            if tail is not None:
-                desc = ' -> b 0x%x' % tail
-        print('target 0x%-8x opcodes %s%s' %
-              (target, compact(ops), desc))
+def reloc_addends(elf, sections):
+    """r_offset -> addend for R_AARCH64_RELATIVE, used to resolve name pointers."""
+    sec = None
+    for s in sections:
+        if s[0] == '.rela.dyn':
+            sec = s
+            break
+    if sec is None:
+        return {}
+    _, addr, off, size = sec
+    out = {}
+    with open(elf, 'rb') as f:
+        f.seek(off)
+        data = f.read(size)
+    for i in range(0, len(data) - 23, 24):
+        r_offset, _r_info, r_addend = struct.unpack('<QQq', data[i:i + 24])
+        out[r_offset] = r_addend
+    return out
 
 
 def compact(ops):
@@ -110,6 +149,36 @@ def compact(ops):
         start = prev = o
     out.append('%#x' % start if start == prev else '%#x-%#x' % (start, prev))
     return ','.join(out)
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument('elf')
+    ap.add_argument('table', help='table virtual address (hex)')
+    ap.add_argument('base', help='base address the offsets are relative to (hex)')
+    ap.add_argument('count', type=lambda v: int(v, 0))
+    ap.add_argument('--start', type=lambda v: int(v, 0), default=0,
+                    help='opcode added to the index (for tables indexed by op - K)')
+    ap.add_argument('--resolve', action='store_true')
+    args = ap.parse_args()
+
+    elf = args.elf
+    sections = read_sections(elf)
+    targets = decode_table(elf, sections, int(args.table, 0), int(args.base, 0),
+                           args.count, args.start)
+
+    groups = {}
+    for op, target in targets.items():
+        groups.setdefault(target, []).append(op)
+
+    for target in sorted(groups):
+        ops = groups[target]
+        desc = ''
+        if args.resolve:
+            tail = block_tail(elf, target)
+            if tail is not None:
+                desc = ' -> b 0x%x' % tail
+        print('target 0x%-8x opcodes %s%s' % (target, compact(sorted(ops)), desc))
 
 
 if __name__ == '__main__':

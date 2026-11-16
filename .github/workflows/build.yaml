@@ -39,6 +39,7 @@ jobs:
           python3 test_depth_clamp_wiring.py
           python3 test_volcanic_mock.py
           python3 test_volcanic_header_validation.py
+          python3 test_m19_opcode_tables.py
       - name: Build and run BC decode test
         run: |
           set -e

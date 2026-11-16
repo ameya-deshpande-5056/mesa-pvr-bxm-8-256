@@ -709,6 +709,25 @@ So the special-cased `cmp w8, #0x69` path at `0x1e8f70` is **`LDLOD`**, not gath
 
 **What this means concretely:** the channel-select form is not conditional on a gather4-specific test at all. For every LD-family instruction, each present component of the state mask (`[state+16]`, bits 0-3) gets one operand, and that operand is built with category `0x1c`. The only per-instruction variation is in its flag bits. The validator at `0x215144` therefore does not guard a mode — it guards that the emitter produced the operand shape the ISA requires, which is exactly what the unconditional path does.
 
+### M19 stage 5: who writes bit 1 of `[state+692]`
+
+Short answer: nothing writes that word in isolation. The evidence, in the order it closes doors:
+
+1. **It starts at zero.** `PVRUniFlexInitInst` (`0x2052ac`) is three instructions of substance: `memset(inst + 4, 0, 0x2d4)` then `inst[0] = 0xffffffff`. So the whole instruction, including offset 692, is zeroed on init and the default is "flag clear". The same function gives the instruction size: 4 + 724 = 728 bytes, matching the `mov w1, #0x2d8` (728) allocation immediate in the constructor.
+2. **No store targets it.** Scanning every store whose address range covers `[base+692, base+696)` — including `strb`/`strh` and 8-byte `str` at `+688` — yields exactly two 4-byte writers (`0x1916d0`, `0x191784`), and both use a base of `object+20`, i.e. they are writing `+692` of a *different* object (the `count * 216` bookkeeping array). Nothing writes this field directly.
+3. **It arrives inside a copied pair.** The instruction constructor (`0x1d6504`, and siblings `0x1d65d8`, `0x1d8858`, `0x1d8944`) allocates 728 bytes, then writes `opcode` at `+0`, the component mask byte at `+16`, and copies an 8-byte field verbatim from the source/declaration object:
+
+```
+1d6510: ldr x8, [x19, #688]
+1d6518: str w26, ...            ; mask byte at +16
+1d651c: str x8, [x0, #688]      ; +688..+695, so +692 is the high word
+```
+
+Offset 692 is therefore the high word of that pair, not a field with its own writer. The bit is inherited from whatever object the instruction was built from, and that object's copy is opaque to static reading.
+4. **It is consumed as a single bit.** Of the 46 sites that read the word, 44 are `ubfx wN, w8, #1, #1` and two read the whole value; no other bit of it is ever tested. So this is a dedicated boolean in the struct, not a general flags word.
+
+**What this establishes for M19.** The mapping is now pinned end to end *inside the emitter*: bit 1 of `[inst+692]` → `ubfx w4, w8, #1, #1` at `0x1e8f3c` → `and w6, w4, #0x1` in `0x1e1370` → `tst w23, #1` at `0x1e1550`, which selects operand flag **`0x20`** on the category-`0x1c` operand. What it does *not* establish is the name of the condition: the value is copied opaquely from the declaration object's `+688` pair, so "bit 1 means bindless" remains an inference from context (it is the per-source boolean the emitter threads into the descriptor-index operand) rather than something the disassembly states. Settling that needs ground truth from the device — one shader compiled with a bindless descriptor and the resulting `+692` value read back.
+
 Caveat worth keeping: which of the three bits is *the* bindless bit is inferred from code structure, not from a named option. `0x20` is the one fed by the instruction-state path that the gather4 emitter drives; `0x800`/`0x1000` come from the operand declaration and are more likely the uniform/dynamic-index pair. Confirming this needs one shader compiled by the vendor driver on the device, which is still gated.
 
 ### M20: 8-bit integers

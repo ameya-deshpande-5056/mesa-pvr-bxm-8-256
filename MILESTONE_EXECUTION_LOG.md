@@ -658,6 +658,25 @@ Two results that matter more than the map itself:
 - **The gather4 check is ungated.** Between the opcode range check (`0x21514c`) and the operand-type compare (`0x21519c`) there is no flag load and no conditional branch other than the index bounds checks. So "bindless mode" is not a runtime switch consulted at emission — it is a *code path*: whoever builds the gather4 instruction chooses the operand form, and this emitter path is the bindless one. For our driver that means the lowering has to produce the bindless operand form, not toggle a bit.
 - **Naive offset scanning does not survive this function.** The argument registers are reused as general temporaries a few hundred instructions in (`x20` becomes `x17+x5` at `0x6ccc0`, `x19` is reloaded from the stack at `0x6e43c`), so byte-offset "candidates" harvested by pattern matching cannot be attributed to an argument. The next attempt needs to follow the call chain that constructs the texture instruction — or a dataflow-capable disassembler — rather than regex over objdump output.
 
+### M19 stage 3: following the gather4 emitter instead
+
+Following the call chain rather than scanning offsets works, and it lands on the answer. The function that contains the gather4 validation spans `0x213120`-`0x2162f8` (12,472 bytes) and has exactly **one caller**, `0x1e8edc` inside the function starting at `0x1e8ea4`. That caller is the gather4 emitter:
+
+1. It takes the component mask `ldrb w25, [x20, #16]` and a base index from the `0x213120` call (returned through `w24`), then loops `w22 = 0..3` over the four gather components.
+2. Per present component it allocates an operand (`bl 0xabe18`) and types it via `0xabb84`. That function is "set operand type": the operand-type table lives at VA `0x289470` with 40-byte entries (`umaddl x8, w2, #40, x23` at `0xabba4`), and index `0x1c` is therefore a real operand type.
+3. It then calls `0x1e1370` per component, passing a bit taken from the state word: `ldr w8, [x20, #692]` + `ubfx w4, w8, #1, #1` at `0x1e8f24`-`0x1e8f3c`. `0x1e1370` masks it to one bit (`and w6, w4, #0x1`) and forwards it to `0x1e1470`.
+4. `0x1e1470` creates the **descriptor-index operand with type `0x1c`** — the same channel-select type the gather4 validation demands — and then sets three operand-flag bits from three separate booleans (`0x1e154c`-`0x1e1588`):
+
+| Flag | Set from |
+| :--- | :--- |
+| `0x20` | `tst w23, #1` — the `[state+692]` bit 1 propagated down from the gather4 emitter |
+| `0x800` | `tst w24, #1` — `ldrb [x3, #40]` in the operand-declaration struct |
+| `0x1000` | `tst w28, #1` — `ldrb [x3, #41]`, which additionally sets `0x200000` in the context word at `[x20, #12]` |
+
+**Conclusion.** The flag we were hunting is not a compile-info option that gates emission — it is an *operand* flag on the descriptor-index operand, and the operand is always built with type `0x1c` (channel select). So there is nothing for our driver to switch on: to use bindless descriptors the emitter must produce the type-`0x1c` operand carrying the dynamic index, and set `0x20` on it when the index comes from a descriptor array. That is precisely the shape `pco_nir_vk.c` already computes for us — `load_vulkan_descriptor` lowers to `vec3(packed_desc, elem, 0)` and `fetch_resource_base_reg()` turns `desc_set`/`binding`/`elem` into a register range — which settles the M19 design question in favour of the descriptor-in-memory lowering.
+
+Caveat worth keeping: which of the three bits is *the* bindless bit is inferred from code structure, not from a named option. `0x20` is the one fed by the instruction-state path that the gather4 emitter drives; `0x800`/`0x1000` come from the operand declaration and are more likely the uniform/dynamic-index pair. Confirming this needs one shader compiled by the vendor driver on the device, which is still gated.
+
 ### M20: 8-bit integers
 
 - `shaderInt8` is now advertised. `pco_lower_bit_size_cb()` widens 8-bit ALU to 32 bits through `nir_lower_bit_size`, and the pass is placed **before** `nir_lower_mem_access_bit_sizes` so an 8-bit value feeding a load offset or store value is already 32-bit when accesses are sized.

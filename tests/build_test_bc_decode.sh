@@ -39,7 +39,12 @@ else
       > "$GEN/src/util/format_srgb.c"
 fi
 
-gcc -O2 -Wall -Wextra -pthread \
+# _GNU_SOURCE is what the meson build defines for these util sources (u_thread.c
+# needs it for sched_getcpu/pthread_setname_np). -Werror matches newer GCC,
+# which makes implicit function declarations a hard error -- that is how this
+# script's own missing <stdlib.h> was caught in CI and not on the build host.
+gcc -O2 -Wall -Wextra -Werror=implicit-function-declaration -pthread \
+   -D_GNU_SOURCE \
    -DHAVE_ENDIAN_H -DHAVE_PTHREAD -DHAVE_STRUCT_TIMESPEC -DHAVE_SYSCONF -DHAVE_SC_PHYS_PAGES \
    -I"$M/include" \
    -I"$M/src" \

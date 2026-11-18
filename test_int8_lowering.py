@@ -60,6 +60,13 @@ def main():
     )
     check("callback widens 8-bit to 32-bit", "return 32;" in cb_body)
     check(
+        "conversion ops are left to the backend",
+        "nir_alu_type_get_type_size(nir_op_infos[alu->op].output_type) != 0"
+        in cb_body,
+        "widening f2f16/u2u8/i2i16 rebuilds an identical instruction, so the "
+        "pass never converges and the opt loop only stops at its guard",
+    )
+    check(
         "nir_lower_bit_size is wired to the callback",
         "nir_lower_bit_size, pco_lower_bit_size_cb" in pco_nir,
     )

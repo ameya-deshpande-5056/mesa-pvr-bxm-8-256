@@ -13,7 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 `shaderInt8` is advertised: `pco_lower_bit_size_cb()` widens 8-bit ALU to 32 bits, running before the memory-access sizing pass so 8-bit offsets and store values are already widened.
 
-8-bit **storage** (`storageBuffer8BitAccess`, `uniformAndStorageBuffer8BitAccess`) stays off. The vendor driver reports both as 1.0, so the gap is in PCO: `trans_load_buffer()` asserts `bits == 32` and `trans_store_buffer()` ends in `UNREACHABLE`, so a byte access would abort compilation rather than lower. `test_int8_lowering.py` (9 checks, mutation-probed) fails if the flags are enabled while the backend is still 32-bit only.
+8-bit **storage** (`storageBuffer8BitAccess`, `uniformAndStorageBuffer8BitAccess`) stays off. The vendor driver reports both as 1.0, so the gap is in PCO: `trans_load_buffer()` asserts `bits == 32` and `trans_store_buffer()` ends in `UNREACHABLE`, so a byte access would abort compilation rather than lower. `test_int8_lowering.py` (10 checks, mutation-probed) fails if the flags are enabled while the backend is still 32-bit only.
+
+The widening callback skips conversion instructions (`f2f16`, `u2u8`, `i2i16`, ...): their result width is part of the opcode, the source is already 32-bit, and rebuilding them made `nir_lower_bit_size` report progress on every iteration, so the optimisation loop only stopped at its 1000-iteration guard while re-emitting dead instructions. The gate asserts the exclusion.
 
 ---
 

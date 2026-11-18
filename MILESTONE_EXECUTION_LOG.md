@@ -735,7 +735,36 @@ Caveat worth keeping: which of the three bits is *the* bindless bit is inferred 
 - `shaderInt8` is now advertised. `pco_lower_bit_size_cb()` widens 8-bit ALU to 32 bits through `nir_lower_bit_size`, and the pass is placed **before** `nir_lower_mem_access_bit_sizes` so an 8-bit value feeding a load offset or store value is already 32-bit when accesses are sized.
 - 8-bit storage stays off, and not because of silicon: `trans_load_buffer()` asserts `bits == 32` and `trans_store_buffer()` has a `switch (bits)` with only `case 32:` followed by `UNREACHABLE`, so a byte access would abort compilation. The vendor reports `storageBuffer8BitAccess = 1.0`, so the gap is ours.
 - What the ISA does allow (from `pco_isa.py`): store instructions carry a `dsize` field with `8bit`/`16bit`/`32bit` encodings, so byte *stores* are expressible. Load instructions (`I_LD_IMMBL`, `I_LD_REGBL`) declare no `dsize` — only `burstlen` in 128-bit units — so there is no byte-load encoding in the generated ISA description. That asymmetry is the concrete reason both 16-bit and 8-bit *storage* features stay off: they need byte/word loads, and no lowering in PCO currently synthesises them from a wider access. Resolving it needs either the missing load encoding or a lowering that reads a containing word, which is only sound when alignment and bounds allow it.
-- Gate: `test_int8_lowering.py` (9 checks, mutation-probed) enforces the widening pass, its ordering, the feature state, **and** that 8-bit storage is not advertised while the backend is 32-bit-only. Flipping `storageBuffer8BitAccess` on fails two checks.
+- Gate: `test_int8_lowering.py` (10 checks, mutation-probed) enforces the widening pass, its ordering, the feature state, **and** that 8-bit storage is not advertised while the backend is 32-bit-only. Flipping `storageBuffer8BitAccess` on fails two checks.
+
+---
+
+## 2026-11-18 — int8 lowering convergence fix
+
+### The defect
+
+`pco_lower_bit_size_cb()` widened every ALU instruction whose result was 8-bit, including conversion opcodes (`u2u8`, `i2i8`, `f2f16`). `nir_lower_bit_size()` cannot widen those: their source is already 32-bit, so `convert_to_bit_size()` would assert, and the pass ends up rebuilding the same instruction with an 8-bit result. The rebuild is reported as progress, so the `pco_nir_opt()` do/while never reached a fixed point and only exited through its `count > 1000` guard, printing `WARNING! Infinite opt loop!` and re-emitting dead conversions on every iteration.
+
+Conversion ops whose *def* is 8-bit cannot come from a 16-bit source, so no narrowing was ever lost — this is a compile-time defect (loop never converges, log spam, wasted iterations per shader), not a wrong-result one.
+
+### The fix
+
+`pco_nir.c`: the callback now returns 0 for any op with a sized output type (`nir_op_infos[op].output_type`), i.e. every conversion. Sized output is exactly the condition the pass itself uses to decide whether a result has to be converted back, so non-conversion 8-bit ALU (arithmetic, logic, moves, selects) is still widened.
+
+### Validation
+
+```bash
+ninja -C build-android src/imagination/vulkan/libvulkan_powervr_mesa.so   # links, 7,037,984 bytes
+python3 test_int8_lowering.py                                            # 10/10
+```
+
+Mutation probe: deleting the output-type guard fails exactly the new check (9/10), the source was restored byte-identically (`cmp`), and the gate returned to 10/10.
+
+Full sweep re-run after the change: multiviewport 9/9, int64 21/21, ASTC 156, depth clamp 19/19, volcanic mock 8/8, header validation 10/10, M19 opcode tables 10/10, BC image path 22/22, `test_bridge_v25_mock` and `test_drm_shim_mock` passed from fresh builds, `test_bc_decode` 45/45, and `tools/package_driver.py` rebuilt both zips (7,037,984-byte library, exports and `DT_NEEDED` revalidated).
+
+### Outcome
+
+The int8 path now converges. This does **not** unblock 16-bit features: `shaderInt16` / `shaderFloat16` need the same widening plus a plan for comparisons, whose result is 1-bit, so `nir_lower_bit_size()` never sees them and 16-bit operand refs would reach a backend that assumes 32-bit ALU operands. Whether the backend can compare 16-bit operand refs is unverified, and that is the prerequisite.
 
 ---
 

@@ -233,22 +233,30 @@ static int mock_bridge_dispatch(uint32_t bridge_id, uint32_t func_id,
             assert(out_size == sizeof(struct pvr_srv_bridge_heap_cfg_heap_details_out_v25));
             const struct pvr_srv_bridge_heap_cfg_heap_details_in_v25 *in = in_data;
             struct pvr_srv_bridge_heap_cfg_heap_details_out_v25 *out = out_data;
+            char *name_buf = (char *)in->pszHeapName;
+            uint32_t name_sz = in->ui32HeapNameBufSz;
+            if (name_sz > 160) name_sz = 160;
+
             if (in->ui32HeapIndex == 0) {
                 out->ui64DevVAddrBase = 0x8000ULL;
                 out->ui64HeapByteSize = 0x8000000000ULL;
                 out->ui32Log2DataPageSize = 12;
-                strncpy(out->szHeapName, "General SVM", sizeof(out->szHeapName));
+                if (name_buf && name_sz > 0)
+                    snprintf(name_buf, name_sz, "General SVM");
             } else if (in->ui32HeapIndex == 1) {
                 out->ui64DevVAddrBase = 0x8000000000ULL;
                 out->ui64HeapByteSize = 0x4000000000ULL;
                 out->ui32Log2DataPageSize = 12;
-                strncpy(out->szHeapName, "General", sizeof(out->szHeapName));
+                if (name_buf && name_sz > 0)
+                    snprintf(name_buf, name_sz, "General");
             } else {
-                snprintf(out->szHeapName, sizeof(out->szHeapName), "Heap_%u", in->ui32HeapIndex);
                 out->ui64DevVAddrBase = 0xda00000000ULL + in->ui32HeapIndex * 0x10000000ULL;
                 out->ui64HeapByteSize = 0x10000000ULL;
                 out->ui32Log2DataPageSize = 12;
+                if (name_buf && name_sz > 0)
+                    snprintf(name_buf, name_sz, "Heap_%u", in->ui32HeapIndex);
             }
+            out->pszHeapName = in->pszHeapName; /* echo of the user pointer */
             out->ui32Error = PVRSRV_OK;
             return 0;
         } else if (func_id == PVR_SRV_BRIDGE_MM_DEVMEMINTHEAPCREATE_V25) {

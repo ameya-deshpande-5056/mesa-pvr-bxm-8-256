@@ -30,6 +30,7 @@ The vendor driver reports 1.0 for all of these on this silicon, so none of it
 is a hardware gap.
 """
 
+import json
 import os
 import sys
 
@@ -163,6 +164,38 @@ def main():
             f"{feature} is not advertised as false",
             f".{feature} = false," not in physical,
         )
+
+    # 7. Limits the emulator allocates against. Where the vendor dump is a hard
+    #    number and this driver's value was an arbitrary choice, they agree.
+    def find_limits(node):
+        if isinstance(node, dict):
+            if "maxUniformBufferRange" in node:
+                return node
+            for value in node.values():
+                found = find_limits(value)
+                if found:
+                    return found
+        elif isinstance(node, list):
+            for value in node:
+                found = find_limits(value)
+                if found:
+                    return found
+        return None
+
+    with open(os.path.join(REPO_ROOT, "device-info/vkjson.json")) as f:
+        vendor_limits = find_limits(json.load(f)) or {}
+
+    check(
+        "the vendor reports a 128 MiB uniform buffer range",
+        int(vendor_limits.get("maxUniformBufferRange", 0)) == 128 * 1024 * 1024,
+    )
+    # A UBO is a pvr_buffer_descriptor (64-bit address, uint32 size) addressed
+    # exactly like an SSBO, so the driver must not cap it below the vendor.
+    check(
+        "the driver advertises the vendor's uniform buffer range",
+        ".maxUniformBufferRange = 128U * 1024U * 1024U," in physical,
+        "a 16 KiB cap rejects the constant buffer pools Switch titles allocate",
+    )
 
     failed = 0
     for name, ok, detail in checks:

@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.5.1-alpha] - 2026-11-18
+
+### Milestone 25: uniform buffer range raised to the vendor's value
+
+A `VkPhysicalDeviceLimits` audit against [`device-info/vkjson.json`](device-info/vkjson.json) found one limit where this driver was narrower than the silicon on a path that has no hardware bound: `maxUniformBufferRange` was 16 KiB while the vendor reports 128 MiB.
+
+Nothing in the backend justifies 16 KiB. A uniform buffer descriptor is a `struct pvr_buffer_descriptor` — a 64-bit address and a `uint32` size — and a storage buffer descriptor is the *same* struct; `pco` addresses both with `nir_address_format_vec2_index_32bit_offset`, so a UBO load at offset N is translated to exactly the access an SSBO load at offset N produces. Storage buffers were already allowed 128 MiB through that identical path.
+
+Why it mattered for Switch: titles allocate large constant buffer pools, and the emulator sizes its uniform buffer objects against `maxUniformBufferRange`. At 16 KiB it refuses to bind ranges the backend can address, so a game whose constant buffer exceeds that cannot even get its first frame up.
+
+### Changed
+
+* `maxUniformBufferRange` is `128U * 1024U * 1024U`, matching both the vendor dump and `maxStorageBufferRange`.
+* `test_switch_required_features.py` grew from 28 to 30 checks: it reads the vendor limits out of `device-info/vkjson.json` and fails if the driver's uniform buffer range drifts below the vendor's.
+
+### Verification
+
+| Check | Result |
+| :--- | :--- |
+| AArch64 cross-link | `libvulkan_powervr_mesa.so` rebuilt |
+| `test_switch_required_features.py` | 30/30 |
+| Full host sweep | unchanged gates still pass |
+| `tools/package_driver.py` | both zips rebuilt, exports and `DT_NEEDED` revalidated |
+
+**Still unverified on silicon:** no UBO larger than 16 KiB has been bound on the device. The claim rests on the descriptor layout and the shared SSBO translation, not on a measurement.
+
+---
+
 ## [0.5.0-alpha] - 2026-11-18
 
 ### Milestone 24: the features Eden/Yuzu require before they select the driver

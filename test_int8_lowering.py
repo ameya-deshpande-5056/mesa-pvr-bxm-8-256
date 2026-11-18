@@ -52,7 +52,7 @@ def main():
         "8-bit ALU widening callback exists",
         "pco_lower_bit_size_cb" in pco_nir
         and "nir_instr_as_alu" in pco_nir
-        and "alu->def.bit_size != 8" in pco_nir,
+        and "alu->def.bit_size == 8" in pco_nir,
     )
     cb_start = pco_nir.find("pco_lower_bit_size_cb(const nir_instr")
     cb_body = (

@@ -768,6 +768,40 @@ The int8 path now converges. This does **not** unblock 16-bit features: `shaderI
 
 ---
 
+## 2026-11-18 — 16-bit shader ALU: does trans_cmp() accept 16-bit operands?
+
+### The question, answered
+
+No. `trans_cmp()` (`pco_trans_nir.c`) builds `tst_op_main` from the opcode and `tst_type_main` from `to_tst_type_main()`, which maps opcodes to `PCO_TST_TYPE_MAIN_F32`, `S32` or `U32` and nothing else; the operand refs are then handed straight to `pco_bcmp()`/`pco_scmp()`. There is no `F16`/`S16` test type in the ISA description, so a 16-bit ref would be compared as a 32-bit register with whatever happens to be in the upper half. Advertising `shaderInt16`/`shaderFloat16` on that path would have produced silently wrong comparisons.
+
+The second half of the problem is that the existing widening pass could never have fixed it: `nir_lower_bit_size()` selects instructions by their *result* width, and a comparison's result is a 1-bit bool.
+
+### Implementation
+
+* `pco_nir.c`: the callback now widens 16-bit ALU in addition to 8-bit, and — because a comparison's result width says nothing about its operands — also returns 32 for any 1-bit-result ALU op with an 8- or 16-bit operand. This closed the same hole in the already-advertised `shaderInt8` path, where an 8-bit comparison was reaching the backend unchanged.
+* `pco_trans_nir.c`: narrowing integer conversions (`i2i16`, `u2u16`) truncate with a `0xffff` mask. `pck` looks tempting (`PCO_PCK_FMT_S1616`) but quantises: after widening, an add that wraps past `INT16_MAX` arrives as a 32-bit value and would be clamped rather than wrapped. Widening (`i2i32` from a 16-bit lane) sign-extends by unpacking the low lane as `S1616`, which cannot saturate; `u2u32` is already zero-extended by the mask. `trans_cmp()` now asserts the 32-bit operand invariant where a reader would look for it.
+* `pvr_physical_device.c`: `shaderInt16` and `shaderFloat16` are advertised only when `PVR_SHADER_16BIT=1`. 16-bit storage (`storageBuffer16BitAccess`, `uniformAndStorageBuffer16BitAccess`, `storagePushConstant16`, `storageInputOutput16`) stays off: the backend still has only 32-bit loads and stores.
+
+Float16 needs no conversion work: `f2f16`/`f2f32` already pack and unpack the half lane, so the widened arithmetic is exact at f32 and rounded once when packed (permitted, not bit-exact against native half arithmetic).
+
+### Validation
+
+```bash
+ninja -C build-android src/imagination/vulkan/libvulkan_powervr_mesa.so   # links, 7,038,456 bytes
+python3 test_shader_16bit.py                                            # 15/15
+python3 test_int8_lowering.py                                           # 10/10
+```
+
+Mutation probes: dropping `|| alu->def.bit_size == 16` fails one check (14/15); setting `.shaderInt16 = true,` unconditionally fails one check (14/15). Sources restored byte-identically (`cmp`), gate back to 15/15.
+
+Full sweep: int64 21/21, multiviewport 9/9, ASTC 156, depth clamp 19/19, volcanic mock 8/8, header validation 10/10, M19 opcode tables 10/10, BC image path 22/22; `test_bridge_v25_mock`, `test_drm_shim_mock` pass from fresh builds; `test_bc_decode` 45/45; `tools/package_driver.py` rebuilt both zips (2,019,443 / 2,019,369 bytes) and revalidated exports and `DT_NEEDED`.
+
+### Outcome
+
+16-bit shaders now translate instead of aborting or mis-comparing, but the features are gated: nothing has been executed on the device. Two limits are named in the gate and in the changelog — float16 arithmetic is computed at f32 and rounded once, and 16-bit `phi` results stay 16-bit because the pass's phi lowering is integer-only, so a value crossing a block boundary is consumed through a pack/unpack pair. Removing `PVR_SHADER_16BIT` needs a 16-bit shader whose output is compared against the vendor driver on the phone.
+
+---
+
 ## Notes on Execution
 
 This log is intentionally designed to be transparent and auditable. The working assumption is:

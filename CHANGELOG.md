@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.0-alpha] - 2026-11-18
+
+### Milestone 22 (16-bit shader ALU): comparisons widened, features gated
+
+`shaderInt16` and `shaderFloat16` now have an implementation behind `PVR_SHADER_16BIT=1`. The question this milestone had to answer first was whether PCO's comparison path accepts 16-bit operands: it does not. `trans_cmp()` derives its test type from the opcode alone (`PCO_TST_TYPE_MAIN_F32`/`S32`/`U32`) and hands the register refs straight to `pco_bcmp()`/`pco_scmp()`, and the ISA has no half-width test type, so a 16-bit operand would silently be compared as 32 bits.
+
+### Added
+
+* **Comparison widening** (`pco_nir.c`): `nir_lower_bit_size` only looks at an instruction's result width, so a comparison — whose result is a 1-bit bool — never reached the pass. The callback now also returns 32 for a 1-bit-result ALU op whose operands are 8- or 16-bit, which rewrites `feq/flt/fneu/ieq/ilt/...` with widened operands. This closed the same hole for 8-bit comparisons, which `shaderInt8` had already advertised.
+* **16-bit ALU widening** (`pco_nir.c`): 16-bit arithmetic, logic, moves and selects are widened to 32 bits alongside 8-bit; `trans_cmp()` asserts the 32-bit operand invariant.
+* **16-bit conversions** (`pco_trans_nir.c`): narrowing truncates with a `0xffff` mask rather than `pck`, whose quantisation would clamp a value that wrapped past `INT16_MAX` instead of wrapping; widening sign-extends by unpacking the low lane as `S1616`.
+* **Gate** (`test_shader_16bit.py`, 15 checks): enforces the widening of both narrow ALU and comparisons, the conversion semantics, the `PVR_SHADER_16BIT` gate defaulting to off, and that all four 16-bit *storage* features stay off.
+
+### Known limitations
+
+* Nothing has been executed on the device. `PVR_SHADER_16BIT` defaults to off because the widened path has not been compared against a reference on silicon; the gate fails if either flag is advertised unconditionally.
+* 16-bit float arithmetic is computed at 32-bit precision and rounded once when packed, which is permitted but not bit-exact against native half arithmetic.
+* 16-bit `phi` results are left 16-bit (the pass's phi lowering is integer-only), so a half or short value that crosses a block boundary is consumed through a pack/unpack pair rather than a widened register.
+
+### Verification
+
+| Check | Result |
+| :--- | :--- |
+| AArch64 cross-link | `libvulkan_powervr_mesa.so`, 7,038,456 bytes |
+| `test_shader_16bit.py` | 15/15 |
+| `test_int8_lowering.py` | 10/10 |
+| Full gate sweep (int64, multiviewport, ASTC, depth clamp, volcanic mock, headers, M19 opcodes, BC image path) | 21/21, 9/9, 156, 19/19, 8/8, 10/10, 10/10, 22/22 |
+| `test_bridge_v25_mock`, `test_drm_shim_mock`, `test_bc_decode` | pass, pass, 45/45 |
+| Mutation probes | dropping 16-bit widening and advertising `shaderInt16` unconditionally each fail one check (14/15); sources restored byte-identically |
+| `tools/package_driver.py` | both zips rebuilt (2,019,443 / 2,019,369 bytes), exports and `DT_NEEDED` revalidated |
+
+---
+
 ## [0.3.0-alpha] - 2026-11-12
 
 ### Milestone 20 (part 2): 8-bit integers

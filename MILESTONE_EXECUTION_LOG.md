@@ -802,6 +802,46 @@ Full sweep: int64 21/21, multiviewport 9/9, ASTC 156, depth clamp 19/19, volcani
 
 ---
 
+## 2026-11-18 — Why the emulator never started: the required-feature list
+
+### The finding
+
+Every milestone so far was judged by whether a feature worked. That was the wrong question to answer first. Yuzu and Eden score each physical device and reject one that is missing a feature they require; a log from such a device lists:
+
+```
+Missing required feature uniformAndStorageBuffer16BitAccess
+Missing required feature storageBuffer8BitAccess
+Missing required feature uniformAndStorageBuffer8BitAccess
+Missing required feature vertexPipelineStoresAndAtomics
+```
+
+with `independentBlend` made required alongside them. This driver reported **all of those as `false`**, so the emulator never selected it, never compiled a shader, and never started a game — no matter how correct ASTC, depth clamp, multi-viewport, int64 or 16-bit ALU were. The vendor driver reports `1.0` for every one of them on this same silicon, so the gap was entirely ours.
+
+### Why each one was off, and what made it truthful
+
+* `vertexPipelineStoresAndAtomics`: the translation is already stage-agnostic (`trans_store_buffer()`, `trans_global_atomic_buffer()` take no stage), so the bit was simply never revisited upstream. Advertised.
+* 8- and 16-bit storage: `pco_mem_access_size_align()` used to *lower the request* to an 8- or 16-bit access when the member was only 1- or 2-byte aligned, which `trans_load_buffer()` (asserts `bits == 32`) and `trans_store_buffer()` (`UNREACHABLE`) cannot encode. It now asks for an aligned 32-bit word instead, and `nir_lower_mem_access_bit_sizes` does the work it already knows how to do: a narrow load becomes word load + byte shift + bitfield extract, a narrow store becomes the `iand`/`ior` pair of 32-bit atomics it emits for unaligned stores (`may_lower_unaligned_stores_to_atomics`). `to_atom_op()` already mapped both to `PCO_ATOM_OP_AND`/`OR`, and `pco_nir_algebraic.py` already lowered `extract_u8/u16` to bitfield extracts.
+* `shaderInt16`/`shaderFloat16`: 16-bit storage means halves arrive from memory whether or not the shader bits are advertised, so the default flipped from off to on (`PVR_SHADER_16BIT=0` disables just those two for bisection; the widening itself is unconditional).
+
+### Validation
+
+```bash
+ninja -C build-android src/imagination/vulkan/libvulkan_powervr_mesa.so   # links, 7,038,512 bytes
+python3 test_switch_required_features.py                                 # 28/28
+python3 test_int8_lowering.py                                            # 13/13
+python3 test_shader_16bit.py                                             # 15/15
+```
+
+Mutation probes: putting the narrow request back to 16 bits fails 1/28 and 1/13; `.vertexPipelineStoresAndAtomics = false` fails 2/28; dropping the atomics fallback fails 1/28. Sources restored byte-identically (`cmp`), gate back to 28/28.
+
+Full sweep: int64 21/21, multiviewport 9/9, ASTC 156, depth clamp 19/19, volcanic mock 8/8, header validation 10/10, M19 opcode tables 10/10, BC image path 22/22; `test_bridge_v25_mock`, `test_drm_shim_mock` pass from fresh builds; `test_bc_decode` 45/45; `tools/package_driver.py` rebuilt both zips (2,019,544 / 2,019,470 bytes) and revalidated exports and `DT_NEEDED`.
+
+### Outcome
+
+The emulator's device-selection list is now satisfied, so the driver can reach shader compilation instead of being skipped. Still unverified on silicon: the narrow-store mask-and-merge path (two concurrent narrow stores to one word interleave per operation), and whether the firmware lets a vertex program write global memory beyond the vendor's reported `1.0`. `storagePushConstant8/16` and `storageInputOutput16` remain off; they need byte/word push-constant upload and 16-bit varyings.
+
+---
+
 ## Notes on Execution
 
 This log is intentionally designed to be transparent and auditable. The working assumption is:

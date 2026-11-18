@@ -21,6 +21,7 @@ Designed to enable gaming and emulation on Android without requiring root, kerne
 * **M17 native ASTC:** 28 format entries + 14 border colours, advertised from the device `has_astc` bit; gate `test_astc_format_coverage.py` (156 checks).
 * **M18 depth clamping:** `clip_mode` and the ISP clamp bit derived from one predicate; gate `test_depth_clamp_wiring.py` (19 checks).
 * **M21 multi-viewport:** `multiViewport` gated on the device feature bit, `maxViewports = 16`, ISP scissor / TA region clip derived from the union of all viewport overlaps; gate `test_multiviewport_wiring.py` (9 checks).
+* **M24 emulator-required features:** the six bits Yuzu/Eden demand before they will select a device (`vertexPipelineStoresAndAtomics`, `independentBlend`, 8- and 16-bit storage) are advertised, backed by word-widened narrow storage; gate `test_switch_required_features.py` (28 checks).
 * **Safety policy:** physical device testing has been authorized following user confirmation and Milestone 11 offline validation verification. Every milestone above is **host-validated only** — none of it has been exercised on silicon yet.
 
 ### Rework documentation
@@ -178,6 +179,8 @@ This release (`v0.2.0-alpha`) focuses on DDK 25.1 kernel ABI alignment, dual-loa
 | **Depth Clamping** | ✅ Supported (M18) | `TA_OUTPUT_SEL.isp_position_depth_clamp_z` + `clip_mode` driven by one predicate; gated by `test_depth_clamp_wiring.py` |
 | **Multi-Viewport** | ✅ Supported (M21) | `multiViewport` gated on `has_multiviewport`, `maxViewports = 16`; ISP scissor + region clip use the union of all viewport overlaps. Validate with `python3 test_multiviewport_wiring.py` |
 | **Descriptor Indexing** | ⏳ **Not advertised (M19)** | Blocked in Mesa, not in silicon: the vendor reports the whole descriptor-indexing set as supported, but this driver uploads descriptors into USC shared registers (uniform index only). See `MILESTONE_M19_M22_PLAN.md` |
+| **8/16-bit Storage** | ✅ Supported (M24) | `pco_mem_access_size_align()` asks for an aligned 32-bit word, and the memory-access pass turns a narrow load into word load + shift + extract and a narrow store into `iand`/`ior` 32-bit atomics. Validate with `python3 test_switch_required_features.py` |
+| **Vertex-stage SSBO Stores/Atomics** | ✅ Supported (M24) | Storage-buffer stores/atomics use the same stage-agnostic translation as compute and fragment; the vendor reports the feature as `1.0`. Eden/Yuzu refuse a device without it |
 | **64-bit Integer (`Int64`)** | ✅ Supported (M20) | 64-bit ALU lowered to 32-bit pairs and 64-bit loads/stores split to 32-bit components. Validate with `python3 test_int64_lowering.py`. No 64-bit atomics |
 | **Geometry & Tessellation** | ⏳ **Planned (M22)** | Requires multi-pass Parameter Buffer streaming emulation; PCO has none yet. Vendor reports both stages supported, so it is a port/study problem |
 | **BC (DXTC) Textures** | ⏳ **Stage 1 (M23)** | No BC hardware, so software decode: kernel for all 16 BC formats + host unit test (`tests/build_test_bc_decode.sh`). Image path not wired, so `textureCompressionBC` stays `false` |

@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.5.0-alpha] - 2026-11-18
+
+### Milestone 24: the features Eden/Yuzu require before they select the driver
+
+Yuzu and Eden score every Vulkan physical device and reject one that is missing a required feature. A run against a driver lacking them logs, in this order:
+
+```
+Missing required feature uniformAndStorageBuffer16BitAccess
+Missing required feature storageBuffer8BitAccess
+Missing required feature uniformAndStorageBuffer8BitAccess
+Missing required feature vertexPipelineStoresAndAtomics
+```
+
+`independentBlend` was made a required feature alongside them. This driver reported **all of those as `false`**, so the emulator never selected it: no shader was compiled and no Switch title could start, whatever else the driver did or did not implement. The vendor driver reports `1.0` for every one of them on this silicon, so none of it is a hardware gap.
+
+### Added
+
+* **Narrow storage lowering** (`pco_nir.c`): `pco_mem_access_size_align()` no longer asks for an 8- or 16-bit access — the request `trans_load_buffer()`/`trans_store_buffer()` could not encode. It asks for an aligned 32-bit word, and `nir_lower_mem_access_bit_sizes` synthesises the narrow semantics: a load becomes word load + byte shift + bitfield extract, and a store becomes the `iand`/`ior` pair of 32-bit atomics the pass emits (`may_lower_unaligned_stores_to_atomics`). `to_atom_op()` already mapped both to `PCO_ATOM_OP_AND`/`OR`.
+* **`storageBuffer8BitAccess`, `uniformAndStorageBuffer8BitAccess`, `storageBuffer16BitAccess`, `uniformAndStorageBuffer16BitAccess`** are advertised, which is what makes the emulator accept the device.
+* **`vertexPipelineStoresAndAtomics`** is advertised: `trans_store_buffer()` and `trans_global_atomic_buffer()` take no stage argument, so a vertex-stage store uses the same translation as compute and fragment.
+* **Gate** (`test_switch_required_features.py`, 28 checks): pins every feature the emulator requires, the word-widening that makes narrow storage truthful, the atomics fallback, and that the paths that do not exist (`storagePushConstant8/16`, `storageInputOutput16`) stay off.
+
+### Changed
+
+* `shaderInt16` and `shaderFloat16` are now on by default (`PVR_SHADER_16BIT=0` disables just those two bits for bisection). 16-bit storage delivers half and short values from memory whether or not the shader features are advertised, so leaving them off would only hide them from the emulator.
+* `test_int8_lowering.py` grew from 10 to 13 checks: it now enforces that no narrow access size is ever requested and that the atomics fallback stays enabled, instead of asserting 8-bit storage is off.
+
+### Known limitations
+
+* Nothing has been executed on the device. The narrow-store path is correct by construction (mask-and-merge atomics on the containing word) but has not been observed on silicon; two concurrent narrow stores to the same word are now two atomic operations, so their interleaving is per-operation rather than whole-store.
+* `storagePushConstant8`/`16` and `storageInputOutput16` remain off: they need byte/word push-constant upload and 16-bit varyings, which are different paths.
+* Vertex-stage global writes rest on the vendor's reported `1.0` plus a stage-agnostic translation; whether the firmware permits a USC vertex program to write global memory is unverified here.
+
+### Verification
+
+| Check | Result |
+| :--- | :--- |
+| AArch64 cross-link | `libvulkan_powervr_mesa.so`, 7,038,512 bytes |
+| `test_switch_required_features.py` | 28/28 |
+| `test_int8_lowering.py` | 13/13 |
+| `test_shader_16bit.py` | 15/15 |
+| Rest of the sweep (int64, multiviewport, ASTC, depth clamp, volcanic mock, headers, M19 opcodes, BC image path) | 21/21, 9/9, 156, 19/19, 8/8, 10/10, 10/10, 22/22 |
+| `test_bridge_v25_mock`, `test_drm_shim_mock`, `test_bc_decode` | pass, pass, 45/45 |
+| Mutation probes | narrow access back to 16 bits (27/28 and 12/13), vertex stores off (26/28), atomics fallback dropped (27/28); sources restored byte-identically |
+| `tools/package_driver.py` | both zips rebuilt (2,019,544 / 2,019,470 bytes), exports and `DT_NEEDED` revalidated |
+
+---
+
 ## [0.4.0-alpha] - 2026-11-18
 
 ### Milestone 22 (16-bit shader ALU): comparisons widened, features gated

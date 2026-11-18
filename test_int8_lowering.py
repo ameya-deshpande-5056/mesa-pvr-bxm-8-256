@@ -7,13 +7,19 @@ operations to 32 bits before instruction selection. 8-bit *storage* is a
 different problem: the PCO backend only has 32-bit buffer loads and stores, so
 advertising storageBuffer8BitAccess would abort compilation.
 
-The gate therefore enforces two things that must stay true together:
+The gate therefore enforces three things that must stay true together:
 
-  1. the widening pass exists and runs before the memory-access pass, and
-  2. 8-bit storage is not advertised unless the backend grew byte access.
+  1. the widening pass exists and runs before the memory-access pass,
+  2. 8-bit *storage* is advertised, because Yuzu/Eden require the bit before
+     they will select the driver at all, and
+  3. no 8-bit access ever reaches the backend: pco_mem_access_size_align()
+     answers with an aligned 32-bit word, and the memory-access pass turns the
+     narrow load into word load + shift + extract and the narrow store into the
+     iand/ior pair of 32-bit atomics.
 
-The second check is the important one: it fails the moment somebody flips the
-feature on without touching trans_load_buffer()/trans_store_buffer().
+Check 3 is the important one: it fails the moment somebody asks the backend
+for an access it cannot encode, or drops the atomics option the store path
+needs.
 
 Paths are derived from this file so the gate also runs from a CI checkout.
 """
@@ -80,33 +86,45 @@ def main():
         "8-bit load offsets and store values must be widened first",
     )
 
-    # 3. Feature state.
+    # 3. Feature state. 8-bit storage is required by Yuzu/Eden's device
+    #    selection, so it is advertised now that narrow access lowers.
     check("shaderInt8 is advertised", ".shaderInt8 = true," in physical)
     check(
-        "storageBuffer8BitAccess stays off",
-        ".storageBuffer8BitAccess = false," in physical,
+        "storageBuffer8BitAccess is advertised",
+        ".storageBuffer8BitAccess = true," in physical,
     )
     check(
-        "uniformAndStorageBuffer8BitAccess stays off",
-        ".uniformAndStorageBuffer8BitAccess = false," in physical,
+        "uniformAndStorageBuffer8BitAccess is advertised",
+        ".uniformAndStorageBuffer8BitAccess = true," in physical,
     )
     check("storagePushConstant8 stays off", ".storagePushConstant8 = false," in physical)
 
-    # 4. The backend really is 32-bit only. If byte access ever lands, this
-    #    check stops being a reason to keep the features off -- so make the
-    #    gate require both halves to agree either way.
-    backend_32bit_only = (
+    # 4. The backend is still 32-bit only, so the access pass has to keep
+    #    narrow accesses away from it.
+    check(
+        "the backend still encodes only 32-bit accesses",
         "assert(bits == 32);" in trans_nir
         and "case 32:" in trans_nir
-        and 'UNREACHABLE("");' in trans_nir
+        and 'UNREACHABLE("");' in trans_nir,
     )
-    storage_off = ".storageBuffer8BitAccess = false," in physical
 
+    cb_start = pco_nir.find("pco_mem_access_size_align(")
+    mem_cb = (
+        pco_nir[cb_start : pco_nir.find("\n}\n", cb_start)] if cb_start != -1 else ""
+    )
     check(
-        "backend and advertised 8-bit storage agree",
-        storage_off or not backend_32bit_only,
-        "8-bit storage is advertised but trans_load_buffer/trans_store_buffer "
-        "still only handle 32-bit accesses",
+        "narrow accesses are requested as aligned 32-bit words",
+        "bit_size < 32" in mem_cb and ".align = 4," in mem_cb,
+        "asking for an 8- or 16-bit access is what used to abort compilation",
+    )
+    check(
+        "no narrow access size is ever requested",
+        "bit_size = 8;" not in mem_cb and "bit_size = 16;" not in mem_cb,
+    )
+    check(
+        "unaligned narrow stores may lower to 32-bit atomics",
+        ".may_lower_unaligned_stores_to_atomics = true" in pco_nir,
+        "without this the pass asserts instead of emitting iand/ior atomics",
     )
 
     failed = 0
@@ -121,7 +139,7 @@ def main():
     if failed:
         print("  ❌ M20 8-bit lowering is inconsistent")
         return 1
-    print("  ✅ int8 is widened to 32-bit; 8-bit storage stays off with the backend")
+    print("  ✅ int8 is widened to 32-bit; 8-bit storage lowers to 32-bit words")
     return 0
 
 

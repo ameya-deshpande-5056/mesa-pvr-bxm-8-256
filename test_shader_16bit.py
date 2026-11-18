@@ -131,18 +131,21 @@ def main():
         else ""
     )
     check(
-        "the gate reads PVR_SHADER_16BIT and defaults to off",
-        'debug_get_bool_option("PVR_SHADER_16BIT", false)' in gate_body,
+        "the gate reads PVR_SHADER_16BIT and defaults to on",
+        'debug_get_bool_option("PVR_SHADER_16BIT", true)' in gate_body,
+        "16-bit storage is advertised, so half and short values arrive from "
+        "memory whether or not the shader features are on",
     )
 
-    # 6. 16-bit *storage* is still refused by the 32-bit-only backend.
+    # 6. 16-bit *storage* is advertised and lowered to 32-bit words; the paths
+    #    that would need 16-bit push constants or varyings stay off.
     for feature in (
-        ".storageBuffer16BitAccess = false,",
-        ".uniformAndStorageBuffer16BitAccess = false,",
+        ".storageBuffer16BitAccess = true,",
+        ".uniformAndStorageBuffer16BitAccess = true,",
         ".storagePushConstant16 = false,",
         ".storageInputOutput16 = false,",
     ):
-        check(f"{feature.strip()} stays off", feature in physical)
+        check(f"{feature.strip()}" , feature in physical)
 
     failed = 0
     for name, ok, detail in checks:

@@ -35,6 +35,9 @@ If you are an incoming AI agent or engineer entering a new conversation context 
    * Mesa branch: `bxm-ddk25-offline` in [`research/mesa-src`](research/mesa-src), clean working tree at commit `f1a4d5929bcf`.
    * Cross-compiled driver binary: [`research/mesa-src/build-android/src/imagination/vulkan/libvulkan_powervr_mesa.so`](research/mesa-src/build-android/src/imagination/vulkan/libvulkan_powervr_mesa.so) (12 MB ELF64, 0 non-Bionic dependencies).
    * Host regression tests: [`tests/test_bridge_v25_mock`](tests/test_bridge_v25_mock) and [`tests/test_drm_shim_mock`](tests/test_drm_shim_mock) are passing under the offline safety policy.
+   * **On-silicon bring-up (DDK 25.1 `pvr` DRM path, M26):** enumeration now succeeds from the app/shell domain via the render-node fallback in `pvr_instance.c` (libdrm cannot read `uevent` under SELinux), and the driver reaches `pvr_srv_winsys_create()` → connect → `DEVMEMINTCTXCREATE`. Every v25 bridge block on that path (connect, ctx create/destroy, heap-config count/details, heap create/destroy, PMR/range/map, compute context) is byte-checked against `pvrsrvkm.ko`; see [`tools/verify_v25_bridge_abi.py`](tools/verify_v25_bridge_abi.py).
+   * **Still open:** `vkCreateDevice` has not yet completed on the phone. The run that would show the next failing bridge op had to wait for the device to come back on USB; nothing after `pvr_srv_memctx_init()` is proven on silicon yet.
+   * **Tracing:** the winsys bring-up traces are behind one opt-in switch, `PVR_DEBUG=srv` (`src/imagination/common/pvr_debug.h`); without it the driver writes nothing to stderr, which is what an app such as Eden sees.
 
 ---
 
@@ -327,18 +330,25 @@ Extracted directly from `_SetDispatchTableEntry` registration in `pvrsrvkm.ko`:
 | **Bridge 6 (MM)** | Func 10 | `DEVMEMINTCTXDESTROY` | 8 B | 4 B | In: `hServerMemCtx` (Type 7). |
 | **Bridge 6 (MM)** | Func 11 | `DEVMEMINTHEAPCREATE` | 16 B | 12 B | In: MemCtx (8B), CfgIdx (4B), HeapIdx (4B). Out: `hServerHeap` (Type 9). |
 | **Bridge 6 (MM)** | Func 12 | `DEVMEMINTHEAPDESTROY` | 8 B | 4 B | In: `hServerHeap` (Type 9). |
-| **Bridge 6 (MM)** | Func 21 | `HEAPCFGHEAPCONFIGCOUNT`| 0 B | 8 B | Out: `ui32NumHeapConfigs`, `ui32Error`. |
-| **Bridge 6 (MM)** | Func 22 | `HEAPCFGHEAPCOUNT` | 4 B | 8 B | In: `ui32HeapConfigIndex`. Out: `ui32NumHeaps`, `ui32Error`. |
-| **Bridge 6 (MM)** | Func 24 | `HEAPCFGHEAPDETAILS` | 20 B | 44 B | Out: Base (8B), Size (8B), Log2Page (4B), `szHeapName[20]`. |
+| **Bridge 6 (MM)** | Func 21 | `HEAPCFGHEAPCONFIGCOUNT`| 0 B | 8 B | Out: `ui32Error` (+0), `ui32NumHeapConfigs` (+4). |
+| **Bridge 6 (MM)** | Func 22 | `HEAPCFGHEAPCOUNT` | 4 B | 8 B | In: `ui32HeapConfigIndex` (+0). Out: `ui32Error` (+0), `ui32NumHeaps` (+4). |
+| **Bridge 6 (MM)** | Func 24 | `HEAPCFGHEAPDETAILS` | 20 B | 44 B | In: `pszHeapName` user ptr (+0), cfg (+8), heap (+12), nameBufSz (+16, ≤160). Out: base (+0), byteSize (+8), reservedSize (+16), name-ptr echo (+24), error (+32), log2Page (+36), log2ImportAlign (+40). |
 | **Bridge 6 (MM)** | Func 30 | `DEVMEMXINTRESERVERANGE`| 24 B | 12 B | In: DevVAddr (8B), Size (8B), Heap (8B). Out: `hReservation` (Type 11). |
 | **Bridge 6 (MM)** | Func 31 | `DEVMEMXINTUNRESERVERANGE`| 8 B | 4 B | In: `hReservation` (Type 11). |
 | **Bridge 6 (MM)** | Func 32 | `DEVMEMXINTMAPPAGES` | 36 B | 4 B | In: PMR (8B), Res (8B), PageCount (4B), Offsets (8B), Flags (8B). |
 | **Bridge 6 (MM)** | Func 33 | `DEVMEMXINTUNMAPPAGES` | 16 B | 4 B | In: Res (8B), PageCount (4B), Offset (4B). |
 | **Bridge 11 (DMABUF)**| Func 0 | `PHYSMEMIMPORTDMABUF` | 24 B | 28 B | In: buffer_fd, flags, name. Out: align (8B), size (8B), PMR (8B), error (4B). |
 | **Bridge 11 (DMABUF)**| Func 1 | `PHYSMEMEXPORTDMABUF` | 8 B | 8 B | In: `hPMR`. Out: `ui32Error` (offset 0, 4B), `iFd` (offset 4, 4B). |
-| **Bridge 129 (CMP)**| Func 0 | `RGXCREATECOMPUTECONTEXT`| 56 B | 12 B | In: takes `hServerMemCtxData` (Type 38 at offset 8). Out: `hComputeContext` (Type 22). |
+| **Bridge 129 (CMP)**| Func 0 | `RGXCREATECOMPUTECONTEXT`| 56 B | 12 B | In: robustness (+0), `hServerMemCtxData` (Type 38, +8), static-state ptr (+16), framework-cmd ptr (+24), priority (+32), static size (+36), flags (+40), framework size (+44), deadline (+48), packed CCB size (+52). Out: `hComputeContext` (handle type 19 at +0), error (+8). |
 | **Bridge 129 (CMP)**| Func 1 | `RGXDESTROYCOMPUTECONTEXT`| 8 B | 4 B | In: `hComputeContext` (Type 22). |
-| **Bridge 129 (CMP)**| Func 8 | `RGXKICKCDM` | 112 B | 12 B | Submit compute kick to firmware. |
+| **Bridge 129 (CMP)**| Func 8 | `RGXKICKCDM` | 112 B | 12 B | Submit compute kick to firmware. Payload carried as an opaque 112-byte block; its internal field layout is not yet verified against the kernel. |
+
+Two rules the table alone does not show, both read out of `BridgedDispatchKM`:
+
+1. **Sizes must be exact.** The dispatcher compares the ioctl's `in_data_size`/`out_data_size` with the registered pair and takes the error path on any mismatch (`cmp w5, w6; b.ne`), so a `HEAPCFGHEAPDETAILS` call must be 20/44 and cannot append the name buffer to the input.
+2. **MM out blocks start with the error code.** `HEAPCFGHEAPCONFIGCOUNT`, `HEAPCFGHEAPCOUNT` and `HEAPCFGHEAPDETAILS` all store `w0` at `out+0` (or `out+32` for the 44-byte details block) and put their values after it, which is the opposite of the `pvrsrv` 1.x structs in `pvr_srv_bridge.h`.
+
+[`tools/verify_v25_bridge_abi.py`](tools/verify_v25_bridge_abi.py) re-derives the whole table from `pvrsrvkm.ko` and compares it with the `sizeof` assertions in `pvr_srv_bridge_v25.h` (20/20 bridge calls at time of writing), so an ABI drift is caught on the host instead of as an `EINVAL` on the phone.
 
 ### 5.2 B-Series 16-Heap Memory Topology (Discovered on Hardware)
 

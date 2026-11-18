@@ -50,7 +50,8 @@ The formal architecture rework record is available in [VOLCANIC_REWORK_DOCUMENTA
   * **Android HAL Mode (`HMI`):** Supported by Android's `hw_get_module` and `adrenotools` driver injection in Nintendo emulators.
   * **Vulkan ICD Mode (`vk_icdGetInstanceProcAddr`):** Supported by desktop/container Vulkan loaders in Winlator, Gamehub, Box64, and DXVK.
 * **Zero Non-Bionic Dependencies:** Statically links `libdrm.a`, ensuring that `libvulkan_powervr_mesa.so` has zero third-party dynamic library dependencies. It links strictly against standard Android system libraries (`libc`, `libm`, `libdl`, `libz`, `libhardware`, `liblog`, `libnativewindow`, `libsync`).
-* **Authoritative DDK 25.1 Bridge ABI:** Reverse-engineered from `pvrsrvkm.ko` dispatch registration tables. Includes C11 static assertions (`pvr_srv_bridge_v25.h`) guaranteeing byte-exact structure alignments and function IDs.
+* **Authoritative DDK 25.1 Bridge ABI:** Reverse-engineered from `pvrsrvkm.ko` dispatch registration tables, including the exact in/out sizes `BridgedDispatchKM` enforces and the field offsets each handler writes. C11 static assertions (`pvr_srv_bridge_v25.h`) pin every layout, and [`tools/verify_v25_bridge_abi.py`](tools/verify_v25_bridge_abi.py) re-derives the table from the kernel module offline (20/20 bridge calls).
+* **Quiet By Default:** all winsys bring-up tracing sits behind a single opt-in switch, `PVR_DEBUG=srv`; with the variable unset the driver writes nothing to stderr.
 * **B-Series 16-Heap Memory Mapping:** Bypasses deferred demand-paged `"General SVM"` (Heap 0), mapping active allocations into the 128 GB `"General"` heap (Heap 1) starting at `0x8000000000`.
 * **Hardware-Aligned PCO Compiler Profile:**
   * Up to 512 compute invocations per workgroup (`ERN35421`).

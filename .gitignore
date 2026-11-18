@@ -18,6 +18,7 @@ tests/test_bridge_v25_mock
 
 # Device harness binary (built for the phone by tools/device/build_smoke.sh)
 tools/device/vk_enum
+tools/device/vk_device
 
 # Proprietary OEM firmware and binary modules (preserves legal compliance)
 firmware/

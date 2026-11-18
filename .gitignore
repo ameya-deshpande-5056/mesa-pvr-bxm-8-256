@@ -30,6 +30,11 @@ binaries/vkprops
 # Raw device logs (contains device identifiers/OAuth tokens)
 crash/logcat.txt
 
+# Eden probe / device evidence
+.eden-probe
+device-evidence/
+hardware_session.log
+
 # Generated distribution archives
 dist/*.zip
 dist/standalone_icd/libvulkan_powervr_mesa.so
